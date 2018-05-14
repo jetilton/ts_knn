@@ -78,44 +78,5 @@ class KnnEnsemble:
 
 
 
-#model = KnnEnsemble()
-#x = get_values(data, freq='H', s=2, w = None, x = True, interpolate = False, limit = None, fill = False)  
-#y = get_values(data, freq='H', s=1, w = None, x = False, interpolate = False, limit = None, fill = False) 
-#model.fit(x.loc[idx],y.loc[idx])
-#test = grouped.get_group('2017-12-31 00:00:00').interpolate().dropna()
-#test_x = get_values(test, freq='H', s=2, w = None, x = True, interpolate = False, limit = None, fill = False)
-#test_y = get_values(test, freq='H', s=2, w = None, x = False, interpolate = False, limit = None, fill = False) 
-#
-#t =test_x.iloc[0].values.reshape(1, 2)
-#y_hat = model.predict(t)
-#model.dynamic(t, 2)
-#model.aic(test_x,test_y)
-##    
-#        
-#        test = grouped.get_group('2017-12-31 00:00:00').interpolate().dropna()
-#         test_x = get_values(test, freq='H', s=1, w = None, x = True, interpolate = False, limit = None, fill = False)  
-#         test_y = get_values(test, freq='H', s=1, w = None, x = False, interpolate = False, limit = None, fill = False) 
-#        def get_params:
-#            
-#        def kneighbors:
-#            
-#        def kneighbors_graph:
-#            
-#        
-#        
-#            
-#        
-#        def score:
-#            
-#        
-#        
-#            
-#        def return_model:
-            
-        
-        
-xs = np.array([ 0.,  1.,  2.,  3.,  4.,  5.,  6.,  7.,  8.,  9.])
-for i in [1,2,5,8,9]
-    xs = shift(xs, -1, cval=i)
     
     
