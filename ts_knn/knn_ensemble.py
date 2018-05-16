@@ -3,6 +3,7 @@ from sklearn.neighbors import KNeighborsRegressor
 import numpy as np
 from copy import copy
 from scipy.ndimage.interpolation import shift
+import pandas as pd
 class KnnEnsemble:
     
     def __init__(self, n_neighbors=[3,5,7], weights='uniform', algorithm='auto', 
@@ -58,17 +59,43 @@ class KnnEnsemble:
         return {'aic':aic[0],'mse':mse[0]}
     
     
+    def forward_selection(self, X_train,X_test, y_train,y_test):
+        columns = X_train.columns
+        r = max([int(x.split('_')[-1]) for x in columns])
+        train_list =[]
+        test_list = []
+        step = 1
+        results = {'step' : [], 'aic' : [], 'mse' : []}
+        for i in range(r):
+            cols = [x for x in columns if str(i+1) == x.split('_')[-1]]
+            train = X_train[cols]
+            train_list.append(train)
+            test = X_test[cols]
+            test_list.append(test)
+            x_train = pd.concat(train_list, axis=1)
+            x_test = pd.concat(test_list, axis=1)
+            self.fit(x_train, y_train)
+            mse = self.aic(x_test,y_test)['mse']
+            aic = self.aic(x_test,y_test)['aic']
+            step = i+1
+            results['step'].append(step)
+            results['mse'].append(mse)
+            results['aic'].append(aic)
+        return pd.DataFrame(results)
+            
+            
+    
+    
     def dynamic(self, X, steps):
-        if np.shape(X)!=(1,self.params):
-            raise ValueError
-        #Have at least one real value within X
         if steps > self.params-1:
             raise ValueError
         y_hat = []
-        for step in range(steps):
-            y = self.predict(X)[0][0]
-            y_hat.append(y)
-            X = shift(X,-1, cval = y)
+        for x in X.values:
+            data = np.array(x).reshape(1,len(x))
+            for step in range(steps):
+                y = self.predict(x.reshape(1,len(x)))[0]
+                y_hat.append(y)
+                data = shift(data,-1, cval = y)
         return np.array(y_hat).reshape(1,len(y_hat))
         
     

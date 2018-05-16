@@ -3,8 +3,11 @@ import pandas as pd
 
 
 
-def get_values(data, freq, s, w = None, x = False, interpolate = False, limit = None, fill = False):
+def get_values(data, freqstr, s, w = None, x = False, interpolate = False, limit = None, fill = False):
     
+        
+    data = data.asfreq(freqstr)
+    name = data.name
     if w: 
         m = s*w
     else: 
@@ -13,19 +16,30 @@ def get_values(data, freq, s, w = None, x = False, interpolate = False, limit = 
         index = data[m:].index
     else:
         index = data[:-m].index
-    columns = ['t_'+ str(i) for i in range(1,m+1)]
+    columns = [name +'_t_'+ str(i) for i in range(1,m+1)]
     vals = pd.DataFrame(index = index, columns = columns, dtype = float) 
-    vals = vals.asfreq(freq)
+    vals = vals.asfreq(freqstr)
     for i in vals.index:
         if x:
             time_stamp = i - m
         else:
             time_stamp = i + 1
-        idx = pd.date_range(time_stamp, periods=m, freq=freq)
+        idx = pd.date_range(time_stamp, periods=m, freq=freqstr)
         vector = data.loc[idx]
         if interpolate:
             vector = vector.interpolate(limit = limit)
         if fill:
             vector.fillna(value = vector.mean(), inplace = True)
-        vals.loc[i] = vector.iloc[:,0].values
+        vals.loc[i] = vector.values
     return vals
+
+
+def df_get_values(df, freqstr, s, w = None, x = False, interpolate = False, limit = None, fill = False):
+    df_list = []
+    for column in df.columns:
+        data = df[column]
+        d= get_values(data, freqstr, s, w = None, x = False, interpolate = False, limit = None, fill = False)
+        df_list.append(d)
+    df = pd.concat(df_list, axis = 1)
+    return df
+
