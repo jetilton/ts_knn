@@ -42,7 +42,7 @@ def df_get_values(df, freqstr, s, w = None, x = False, interpolate = False, limi
     df_list = []
     for column in df.columns:
         data = df[column]
-        d= get_values(data, freqstr, s, w = None, x = False, interpolate = False, limit = None, fill = False)
+        d= get_values(data, freqstr, s, w = w, x = x, interpolate = interpolate, limit = limit, fill = fill, forecast = forecast)
         df_list.append(d)
     df = pd.concat(df_list, axis = 1)
     return df
