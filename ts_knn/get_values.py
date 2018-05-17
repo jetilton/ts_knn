@@ -3,7 +3,7 @@ import pandas as pd
 
 
 
-def get_values(data, freqstr, s, w = None, x = False, interpolate = False, limit = None, fill = False):
+def get_values(data, freqstr, s, w = None, x = False, interpolate = False, limit = None, fill = False, forecast = True):
     
         
     data = data.asfreq(freqstr)
@@ -21,9 +21,13 @@ def get_values(data, freqstr, s, w = None, x = False, interpolate = False, limit
     vals = vals.asfreq(freqstr)
     for i in vals.index:
         if x:
-            time_stamp = i - m
+            if forecast: 
+                step = m + 1
+            else:
+                step = m
+            time_stamp = i - step
         else:
-            time_stamp = i + 1
+            time_stamp = i 
         idx = pd.date_range(time_stamp, periods=m, freq=freqstr)
         vector = data.loc[idx]
         if interpolate:
