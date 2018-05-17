@@ -38,7 +38,7 @@ def get_values(data, freqstr, s, w = None, x = False, interpolate = False, limit
     return vals
 
 
-def df_get_values(df, freqstr, s, w = None, x = False, interpolate = False, limit = None, fill = False):
+def df_get_values(df, freqstr, s, w = None, x = False, interpolate = False, limit = None, fill = False, forecast = False):
     df_list = []
     for column in df.columns:
         data = df[column]
