@@ -2,7 +2,6 @@
 import pandas as pd
 
 
-
 def get_values(data, freqstr, s, w = None, x = False, interpolate = False, limit = None, fill = False, forecast = True):
     
         
@@ -28,8 +27,9 @@ def get_values(data, freqstr, s, w = None, x = False, interpolate = False, limit
             time_stamp = i - step
         else:
             if forecast: 
-                step = m + 1
-            time_stamp = i 
+                time_stamp = i+1
+            else:
+                time_stamp = i 
         idx = pd.date_range(time_stamp, periods=m, freq=freqstr)
         vector = data.loc[idx]
         if interpolate:
@@ -38,7 +38,6 @@ def get_values(data, freqstr, s, w = None, x = False, interpolate = False, limit
             vector.fillna(value = vector.mean(), inplace = True)
         vals.loc[i] = vector.values
     return vals
-
 
 def df_get_values(df, freqstr, s, w = None, x = False, interpolate = False, limit = None, fill = False, forecast = False):
     df_list = []
