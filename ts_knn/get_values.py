@@ -27,6 +27,8 @@ def get_values(data, freqstr, s, w = None, x = False, interpolate = False, limit
                 step = m
             time_stamp = i - step
         else:
+            if forecast: 
+                step = m + 1
             time_stamp = i 
         idx = pd.date_range(time_stamp, periods=m, freq=freqstr)
         vector = data.loc[idx]
