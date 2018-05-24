@@ -67,7 +67,7 @@ class KnnEnsemble:
         step = 1
         results = {'step' : [], 'aic' : [], 'mse' : []}
         for i in range(r):
-            cols = [x for x in columns if str(i+1) == x.split('_')[-1]]
+            cols = [x for x in columns if int(i+1) == int(x.split('_')[-1])]
             train = X_train[cols]
             train_list.append(train)
             test = X_test[cols]
@@ -81,7 +81,11 @@ class KnnEnsemble:
             results['step'].append(step)
             results['mse'].append(mse)
             results['aic'].append(aic)
-        return pd.DataFrame(results)
+        results = pd.DataFrame(results)
+        step = results[results['mse'] == results['mse'].min()]['step'].values[0]
+        cols = [x for x in columns if int(step) == int(x.split('_')[-1])]
+        train = X_train[cols]
+        return (results,train)
             
             
     
