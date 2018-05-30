@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from sklearn.neighbors import KNeighborsRegressor
 import numpy as np
-from copy import copy
+from copy import copy, deepcopy
 from scipy.ndimage.interpolation import shift
 import pandas as pd
 class KnnEnsemble:
@@ -54,7 +54,7 @@ class KnnEnsemble:
         return np.mean(pred_list, axis = 0)
     
     
-    def aic(self, X_test, y_test, dynamic = False, **kwargs):
+    def aic(self, X_test, y_test, dynamic = False):
         if dynamic:
             y_hat = self.dynamic(X_test)
         else:
@@ -63,7 +63,7 @@ class KnnEnsemble:
         aic = (self.n*np.log(mse) + 2 * (self.params +1))/len(list(y_test.columns))
         return {'aic':aic,'mse':mse}
     
-    def forward_selection(self, X_train,X_test, y_train,y_test, dynamic = False, **kwargs):
+    def forward_selection(self, X_train,X_test, y_train,y_test, dynamic = False):
         columns = X_train.columns
         max_step = max([int(x.split('_')[-1]) for x in columns])
         min_step = min([int(x.split('_')[-1]) for x in columns])
@@ -75,7 +75,7 @@ class KnnEnsemble:
             x_train = X_train[cols].copy()
             x_test = X_test[cols].copy()
             self.fit(x_train, y_train)
-            aic_mse = self.aic(x_test, y_test, dynamic = dynamic, **kwargs)
+            aic_mse = self.aic(x_test, y_test, dynamic = dynamic)
             mse = aic_mse['mse']
             aic = aic_mse['aic']
             results['step'].append(step)
@@ -96,7 +96,7 @@ class KnnEnsemble:
         min_mse = aic_mse['mse']
         columns = list(X_trn.columns)
         df = X_trn.copy()
-        results = {'step' : [len(columns)], 'aic' : [copy.deepcopy(min_aic)], 'mse' : [copy.deepcopy(min_mse)]}
+        results = {'step' : [len(columns)], 'aic' : [deepcopy(min_aic)], 'mse' : [deepcopy(min_mse)]}
         for i in range(len(columns)-1):
             columns.pop(0) 
             x_train = X_trn[columns]
