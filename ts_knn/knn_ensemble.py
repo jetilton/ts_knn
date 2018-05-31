@@ -95,10 +95,12 @@ class KnnEnsemble:
         min_aic = aic_mse['aic']
         min_mse = aic_mse['mse']
         columns = list(X_trn.columns)
+        max_step = max([int(x.split('_')[-1]) for x in columns])
+        min_step = min([int(x.split('_')[-1]) for x in columns])
         df = X_trn.copy()
         results = {'step' : [len(columns)], 'aic' : [deepcopy(min_aic)], 'mse' : [deepcopy(min_mse)]}
-        for i in range(len(columns)-1):
-            columns.pop(0) 
+        for i in range(min_step, max_step):
+            columns = [x for x in columns if int(x.split('_')[-1]) != i]
             x_train = X_trn[columns]
             x_test = X_test[columns]
             self.fit(x_train, y_train)
