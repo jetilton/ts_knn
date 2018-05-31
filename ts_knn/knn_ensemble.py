@@ -88,7 +88,7 @@ class KnnEnsemble:
         return (results,df)
     
     def forward_backward_selection(self, X_train,X_test, y_train,y_test):
-        results,X_trn = self.forward_selection(X_train,X_test, y_train,y_test, dynamic = False)
+        results_f,X_trn = self.forward_selection(X_train,X_test, y_train,y_test, dynamic = False)
         self.fit(X_trn, y_train)
         x_test = X_test[list(X_trn.columns)]
         aic_mse = self.aic(x_test,y_test, dynamic = False)
@@ -116,7 +116,7 @@ class KnnEnsemble:
                 df = x_train.copy()
 
         results = pd.DataFrame(results)
-        return (results,df)
+        return (results_f,results,df)
             
 
     def dynamic(self, X):
