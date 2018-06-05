@@ -23,6 +23,8 @@ class KnnEnsemble:
         self.params = 0
         self.X = None
         self.y = None
+        self.high = None
+        self.low = None
     
         
         for n in self.n_neighbors[0]:
@@ -43,7 +45,7 @@ class KnnEnsemble:
         for n in self.n_neighbors[0]:
             self.model_dict[n]['model'] = self.model_dict[n]['model'].fit(X,y)
             
-    def predict(self, X):
+    def static(self, X):
         pred_list = []
         for n in self.n_neighbors[0]:
             try:
@@ -51,14 +53,59 @@ class KnnEnsemble:
             except KeyError:
                 self.model_dict[n].update({'predict':self.model_dict[n]['model'].predict(X)})
             pred_list.append(self.model_dict[n]['predict'])
-        return np.mean(pred_list, axis = 0)
+        
+        preds = np.mean(pred_list, axis = 0)
+        
+        return preds
+    
+    def dynamic(self, X):
+        steps = len(list(self.y.columns))
+        Y_hat = []
+        self.fit(self.X,self.y.iloc[:,0:1], new_fit = False)
+        for x in X.values:
+            data = np.array(x).reshape(1,len(x))
+            y_hat = []
+            for step in range(steps):
+                y1 = self.static(data)[0][0]
+                data = shift(data,1, cval = y1)
+                y_hat.append(y1)
+            Y_hat.append(y_hat)
+        
+        self.fit(self.X,self.y)
+        return(Y_hat)
+    
+    def predict(self, X, dynamic = False, freqstr = 'H', step = 1):
+        if dynamic:
+            preds =  self.dynamic(X)
+        else:
+            preds =  self.static(X)
+        df_list = []
+        idx = X.index
+        date = ''
+        for index,pred in enumerate(preds):
+            if freqstr:
+                ts = idx[index] 
+                date= pd.date_range(ts, periods=len(pred), freq=freqstr) + step
+            df = pd.DataFrame(data = pred, columns = ['y_hat'])
+            if isinstance(date, pd.core.indexes.datetimes.DatetimeIndex):
+                df['date'] = date
+                df = df.set_index('date', drop = True)
+            try:
+                df['high']  = df['y_hat'] + self.high
+                df['low']  = df['y_hat'] + self.low
+            except:
+                pass
+            
+            
+            df_list.append(df)
+        return df_list
     
     
     def aic(self, X_test, y_test, dynamic = False):
         if dynamic:
             y_hat = self.dynamic(X_test)
         else:
-            y_hat = self.predict(X_test)
+            y_hat = self.static(X_test)
         mse = np.mean(np.sqrt(np.subtract(y_test,y_hat)**2)).sum()/len(list(y_test.columns))
         aic = (self.n*np.log(mse) + 2 * (self.params +1))/len(list(y_test.columns))
         return {'aic':aic,'mse':mse}
@@ -116,21 +163,28 @@ class KnnEnsemble:
                 df = x_train.copy()
 
         results = pd.DataFrame(results)
+        self.fit(df, y_train)
+        error = self.pred_intervals(X_test[df.columns],y_test)
         return (results_f,results,df)
-            
-
-    def dynamic(self, X):
-        steps = len(list(self.y.columns))
-        Y_hat = []
-        self.fit(self.X,self.y.iloc[:,0:1], new_fit = False)
-        for x in X.values:
-            data = np.array(x).reshape(1,len(x))
-            y_hat = []
-            for step in range(steps):
-                y1 = self.predict(data)[0][0]
-                data = shift(data,1, cval = y1)
-                y_hat.append(y1)
-            Y_hat.append(y_hat)
+    
+    def pred_intervals(self, X_test, y_test, p = .95):
+        low = (1-p)/2
+        high = 1-low
         
-        self.fit(self.X,self.y)
-        return(Y_hat)
+        x_train = self.X
+        y_train = self.y
+        error_list = []
+        for i in range(1000):
+            x_sample_train = x_train.sample(frac = 1, replace = True)
+            y_sample_train = y_train.loc[x_sample_train.index]
+            model = KnnEnsemble()
+            model.fit(x_sample_train, y_sample_train)
+            preds = model. static(X_test)
+            e = y_test - preds
+            error_list.append(e)
+        error = pd.concat(error_list, ignore_index = True)
+        self.high = error.quantile(high).values
+        self.low = error.quantile(low).values
+        return error
+
+    

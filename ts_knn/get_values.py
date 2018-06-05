@@ -15,7 +15,7 @@ def get_values(data, freqstr, s, w = None, x = False, interpolate = False, limit
         index = data[m:].index
     else:
         index = data[:-m].index
-    columns = [name +'_t_'+ str(i) for i in range(1,m+1)]
+    columns = [name +'_t_'+ '{0:0>2}'.format(str(i)) for i in range(1,m+1)]
     vals = pd.DataFrame(index = index, columns = columns, dtype = float) 
     vals = vals.asfreq(freqstr)
     for i in vals.index:
