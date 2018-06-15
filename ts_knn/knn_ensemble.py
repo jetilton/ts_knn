@@ -4,6 +4,8 @@ import numpy as np
 from copy import copy, deepcopy
 from scipy.ndimage.interpolation import shift
 import pandas as pd
+
+
 class KnnEnsemble:
     
     def __init__(self, n_neighbors=[3,5,7], weights='uniform', algorithm='auto', 
@@ -41,7 +43,10 @@ class KnnEnsemble:
             self.y = y
         shape = np.shape(X)
         self.n = shape[0]
-        self.params = shape[1]
+        try:
+            self.params = shape[1]
+        except IndexError:
+            self.params = 1
         for n in self.n_neighbors[0]:
             self.model_dict[n]['model'] = self.model_dict[n]['model'].fit(X,y)
             
@@ -70,7 +75,6 @@ class KnnEnsemble:
                 data = shift(data,1, cval = y1)
                 y_hat.append(y1)
             Y_hat.append(y_hat)
-        
         self.fit(self.X,self.y)
         return(Y_hat)
     
@@ -95,82 +99,111 @@ class KnnEnsemble:
                 df['low']  = df['y_hat'] + self.low
             except:
                 pass
-            
-            
             df_list.append(df)
         return df_list
     
     
-    def aic(self, X_test, y_test, dynamic = False):
+    def error(self, X_test, y_test, dynamic = False):
         if dynamic:
             y_hat = self.dynamic(X_test)
         else:
             y_hat = self.static(X_test)
-        mse = np.mean(np.sqrt(np.subtract(y_test,y_hat)**2)).sum()/len(list(y_test.columns))
-        aic = (self.n*np.log(mse) + 2 * (self.params +1))/len(list(y_test.columns))
-        return {'aic':aic,'mse':mse}
+        rmse = np.sqrt((np.subtract(y_test,y_hat)**2).mean())
+        #aic = (np.log(rmse/self.n) + 2 * (self.params +1)).mean()
+        return {'rmse':rmse}
+    
     
     def forward_selection(self, X_train,X_test, y_train,y_test, dynamic = False):
         columns = X_train.columns
         max_step = max([int(x.split('_')[-1]) for x in columns])
         min_step = min([int(x.split('_')[-1]) for x in columns])
-        results = {'step' : [], 'aic' : [], 'mse' : []}
-        min_aic = float('inf')
+        results = {'step' : [], 'rmse' : []}
+        min_rmse = float('inf')
         df = False
         for step in range(min_step, max_step+1):
             cols = [x for x in columns if step >= int(x.split('_')[-1])]
             x_train = X_train[cols].copy()
             x_test = X_test[cols].copy()
             self.fit(x_train, y_train)
-            aic_mse = self.aic(x_test, y_test, dynamic = dynamic)
-            mse = aic_mse['mse']
-            aic = aic_mse['aic']
+            error = self.error(x_test, y_test, dynamic = dynamic)
+            rmse = error['rmse'].mean()
+            #aic = aic_mse['aic']
             results['step'].append(step)
-            results['mse'].append(mse)
-            results['aic'].append(aic)
-            if aic < min_aic:
-                min_aic = aic
+            results['rmse'].append(rmse)
+            #results['aic'].append(aic)
+            if rmse < min_rmse:
+                min_rmse = rmse
+                df = x_train.copy()
+#            else:
+#                return (pd.DataFrame(results), df)
+        return (pd.DataFrame(results),df)
+    
+    def backward_selection(self, X_train,X_test, y_train,y_test):
+        self.fit(X_train, y_train)
+        x_test = X_test[list(X_train.columns)]
+        error = self.error(x_test,y_test, dynamic = False)
+        #min_aic = aic_mse['aic']
+        min_rmse = error['rmse'].mean()
+        columns = list(X_train.columns)
+        max_step = max([int(x.split('_')[-1]) for x in columns])
+        min_step = min([int(x.split('_')[-1]) for x in columns])
+        df = X_train.copy()
+        results = {'step' : [max_step], 'rmse' : [deepcopy(min_rmse)]}
+        for i in range(min_step, max_step):
+            columns = [x for x in columns if int(x.split('_')[-1]) > i]
+            x_train = X_train[columns]
+            x_test = X_test[columns]
+            self.fit(x_train, y_train)
+            error = self.error(x_test,y_test, dynamic = False)
+            rmse = error['rmse'].mean()
+            #error = aic_mse['aic']
+            step = max_step - i
+            results['step'].append(step)
+            results['rmse'].append(rmse)
+            #results['aic'].append(aic)
+            if rmse < min_rmse:
+                min_rmse = rmse
                 df = x_train.copy()
         results = pd.DataFrame(results)
-        return (results,df)
+        self.fit(df, y_train)
+        error = self.pred_intervals(X_test[df.columns],y_test)
+        return (results,error,df)
     
     def forward_backward_selection(self, X_train,X_test, y_train,y_test):
         results_f,X_trn = self.forward_selection(X_train,X_test, y_train,y_test, dynamic = False)
         self.fit(X_trn, y_train)
         x_test = X_test[list(X_trn.columns)]
-        aic_mse = self.aic(x_test,y_test, dynamic = False)
-        min_aic = aic_mse['aic']
-        min_mse = aic_mse['mse']
+        #error = self.error(x_test,y_test, dynamic = False)
+        #min_aic = aic_mse['aic']
+        min_rmse = results_f['rmse'].min()
         columns = list(X_trn.columns)
         max_step = max([int(x.split('_')[-1]) for x in columns])
         min_step = min([int(x.split('_')[-1]) for x in columns])
         df = X_trn.copy()
-        results = {'step' : [max_step], 'aic' : [deepcopy(min_aic)], 'mse' : [deepcopy(min_mse)]}
+        results = {'step' : [max_step], 'rmse' : [deepcopy(min_rmse)]}
         for i in range(min_step, max_step):
-            columns = [x for x in columns if int(x.split('_')[-1]) != i]
+            columns = [x for x in columns if int(x.split('_')[-1]) > i]
             x_train = X_trn[columns]
             x_test = X_test[columns]
             self.fit(x_train, y_train)
-            aic_mse = self.aic(x_test,y_test, dynamic = False)
-            mse = aic_mse['mse']
-            aic = aic_mse['aic']
+            error = self.error(x_test,y_test, dynamic = False)
+            rmse = error['rmse'].mean()
+            #error = aic_mse['aic']
             step = max_step - i
             results['step'].append(step)
-            results['mse'].append(mse)
-            results['aic'].append(aic)
-            if aic < min_aic:
-                min_aic = aic
+            results['rmse'].append(rmse)
+            #results['aic'].append(aic)
+            if rmse < min_rmse:
+                min_rmse = rmse
                 df = x_train.copy()
-
         results = pd.DataFrame(results)
         self.fit(df, y_train)
         error = self.pred_intervals(X_test[df.columns],y_test)
-        return (results_f,results,df)
+        return (results_f,results,error,df)
     
     def pred_intervals(self, X_test, y_test, p = .95):
         low = (1-p)/2
         high = 1-low
-        
         x_train = self.X
         y_train = self.y
         error_list = []
@@ -187,4 +220,14 @@ class KnnEnsemble:
         self.low = error.quantile(low).values
         return error
 
+    def automatic(endogenous, exogenous = None, steps = 5):
+        """
+        Enter endogenous and optional exogenous
+        automatically format into the specified steps
+        go through forward backward variable selection
+        
+        """
+        pass
+    
+    
     
