@@ -66,7 +66,11 @@ class KnnEnsemble:
         self.y = None
         self.high = None
         self.low = None
-    
+        self.lags = None
+        self.x_shape = None
+        self.freqstr = None
+        self.limit = None
+        self.x_test = None
         
         for n in self.n_neighbors[0]:
             model = KNeighborsRegressor(n_neighbors = n, weights=self.weights, algorithm=self.algorithm, 
@@ -90,7 +94,11 @@ class KnnEnsemble:
 #            self.model_dict[n]['model'] = self.model_dict[n]['model'].fit(X,y)
     
     def fit(self, x, y, freqstr, h, lags, limit = 5, new_fit = True):
+        self.freqstr = freqstr
+        self.lags = lags
+        self.limit = limit
         x = pd.DataFrame(x).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+        self.shape = x.shape
         if isinstance(y, pd.DataFrame):
             if y.shape[1]>1:
                 raise ValueError('y must be of shape (n,1)')
@@ -107,13 +115,14 @@ class KnnEnsemble:
         for n in self.n_neighbors[0]:
             self.model_dict[n]['model'] = self.model_dict[n]['model'].fit(X,Y)
         
-    
-    
-    
-    
-    
-    
-    def static(self, X):
+    def static(self, X, test = False):
+        X = pd.DataFrame(X)
+        if X.shape[1] != self.shape[1]:
+                raise ValueError('Your test data (i,j) must match training data shape')
+        X = X.asfreq(freq = self.freqstr).interpolate(limit = self.limit).dropna()
+        X = get_data_df(X, self.lags, forward = False).dropna()
+        if test:
+            self.x_test = X
         pred_list = []
         for n in self.n_neighbors[0]:
             try:
@@ -121,10 +130,11 @@ class KnnEnsemble:
             except KeyError:
                 self.model_dict[n].update({'predict':self.model_dict[n]['model'].predict(X)})
             pred_list.append(self.model_dict[n]['predict'])
-        
         preds = np.mean(pred_list, axis = 0)
-        
         return preds
+    
+    
+    
 #    
 #    def dynamic(self, X):
 #        steps = len(list(self.y.columns))

@@ -67,6 +67,31 @@ class TestMethods(unittest.TestCase):
         
         self.assertEqual(False in model.X.index == model.y.index, False)
         
+    def test_static(self):
+        x = self.endogenous
+        x = x.iloc[:,0] 
+        index = x.index[int(len(x)*.85)]
+        x_train = x[:index]
+        x_test = x[index:]
+        lags = np.random.randint(1,10,1)[0]
+        model = KnnEnsemble()
+        model.fit(x_train,x_train, 'H', 24, lags, limit = 5, new_fit = True)
+        y_hat = model.static(x_test, test = True)
+        k3 = KNeighborsRegressor(n_neighbors = 3)
+        k5 = KNeighborsRegressor(n_neighbors = 5)
+        k7 = KNeighborsRegressor(n_neighbors = 7)
+        results = []
+        x_trn = model.X
+        y_trn = model.y
+        for m in [k3, k5, k7]:
+            m.fit(x_trn, y_trn)
+            results.append(m.predict(model.x_test))
+        results = np.mean(results, axis =0)
+        res = results == y_hat
+        self.assertEqual(False in res, False)
+        
+        
+        
 #    def test_static(self):
 #        model = KnnEnsemble([3,5,7])
 #        model.fit(x_train, y_train)
