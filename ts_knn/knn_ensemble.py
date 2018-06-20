@@ -5,7 +5,46 @@ from copy import copy, deepcopy
 from scipy.ndimage.interpolation import shift
 import pandas as pd
 
+def return_x(series, i, x):
+    x_columns = [series.name +'_t_'+ '{0:0>2}'.format(str(i))]
+    x_data = [list(series.shift((i)).values)]
+    x_df = pd.DataFrame(index = series.index, data = {k:v for k,v in zip(x_columns, x_data)}).dropna()
+    x = pd.concat([x,x_df], axis = 1).dropna()
+    return x
 
+
+def get_data(series, steps, forward = False):
+    if forward:
+        fb = -1
+    else:
+        fb = 1
+    columns = [series.name +'_t_'+ '{0:0>2}'.format(str(i)) for i in range(1,steps+1)]
+    data = [list(series.shift(i*fb).values) for i in range(1,steps+1)]
+    df = pd.DataFrame(index = series.index, data = {k:v for k,v in zip(columns, data)}).dropna()
+    return df
+
+def get_data_df(df, steps, forward = False):
+    df_list = []
+    for column in df.columns:
+        d = get_data(df[column], steps, forward = forward)
+        df_list.append(d)
+    df = pd.concat(df_list, axis = 1)
+    return df
+
+def get_y(endogenous, freqstr, limit, steps_ahead):
+        if isinstance(endogenous, pd.DataFrame):
+            if endogenous.shape[1]>1:
+                raise ValueError('Endogenous must be of shape (n,1)')
+            else:
+                endogenous=pd.Series(endogenous.iloc[:,0])
+        endog = endogenous.asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+        y = get_data(endog, steps_ahead, forward = True)
+        y = y.dropna()
+        y_columns = [endog.name +'_t_'+ '{0:0>2}'.format(str(i)) for i in range(1,steps_ahead+1)]
+        return (y,y_columns,endog)
+
+
+    
 class KnnEnsemble:
     
     def __init__(self, n_neighbors=[3,5,7], weights='uniform', algorithm='auto', 
@@ -62,21 +101,21 @@ class KnnEnsemble:
         preds = np.mean(pred_list, axis = 0)
         
         return preds
-    
-    def dynamic(self, X):
-        steps = len(list(self.y.columns))
-        Y_hat = []
-        self.fit(self.X,self.y.iloc[:,0:1], new_fit = False)
-        for x in X.values:
-            data = np.array(x).reshape(1,len(x))
-            y_hat = []
-            for step in range(steps):
-                y1 = self.static(data)[0][0]
-                data = shift(data,1, cval = y1)
-                y_hat.append(y1)
-            Y_hat.append(y_hat)
-        self.fit(self.X,self.y)
-        return(Y_hat)
+#    
+#    def dynamic(self, X):
+#        steps = len(list(self.y.columns))
+#        Y_hat = []
+#        self.fit(self.X,self.y.iloc[:,0:1], new_fit = False)
+#        for x in X.values:
+#            data = np.array(x).reshape(1,len(x))
+#            y_hat = []
+#            for step in range(steps):
+#                y1 = self.static(data)[0][0]
+#                data = shift(data,1, cval = y1)
+#                y_hat.append(y1)
+#            Y_hat.append(y_hat)
+#        self.fit(self.X,self.y)
+#        return(Y_hat)
     
     def predict(self, X, dynamic = False, freqstr = 'H', step = 1):
         if dynamic:
@@ -110,124 +149,160 @@ class KnnEnsemble:
             y_hat = self.static(X_test)
         rmse = np.sqrt((np.subtract(y_test,y_hat)**2).mean())
         #aic = (np.log(rmse/self.n) + 2 * (self.params +1)).mean()
-        return {'rmse':rmse}
-    
-    
-    def forward_selection(self, X_train,X_test, y_train,y_test, dynamic = False):
-        columns = X_train.columns
-        max_step = max([int(x.split('_')[-1]) for x in columns])
-        min_step = min([int(x.split('_')[-1]) for x in columns])
-        results = {'step' : [], 'rmse' : []}
-        min_rmse = float('inf')
-        df = False
-        for step in range(min_step, max_step+1):
-            cols = [x for x in columns if step >= int(x.split('_')[-1])]
-            x_train = X_train[cols].copy()
-            x_test = X_test[cols].copy()
-            self.fit(x_train, y_train)
-            error = self.error(x_test, y_test, dynamic = dynamic)
-            rmse = error['rmse'].mean()
-            #aic = aic_mse['aic']
-            results['step'].append(step)
-            results['rmse'].append(rmse)
-            #results['aic'].append(aic)
-            if rmse < min_rmse:
-                min_rmse = rmse
-                df = x_train.copy()
-#            else:
-#                return (pd.DataFrame(results), df)
-        return (pd.DataFrame(results),df)
-    
-    def backward_selection(self, X_train,X_test, y_train,y_test):
-        self.fit(X_train, y_train)
-        x_test = X_test[list(X_train.columns)]
-        error = self.error(x_test,y_test, dynamic = False)
-        #min_aic = aic_mse['aic']
-        min_rmse = error['rmse'].mean()
-        columns = list(X_train.columns)
-        max_step = max([int(x.split('_')[-1]) for x in columns])
-        min_step = min([int(x.split('_')[-1]) for x in columns])
-        df = X_train.copy()
-        results = {'step' : [max_step], 'rmse' : [deepcopy(min_rmse)]}
-        for i in range(min_step, max_step):
-            columns = [x for x in columns if int(x.split('_')[-1]) > i]
-            x_train = X_train[columns]
-            x_test = X_test[columns]
-            self.fit(x_train, y_train)
-            error = self.error(x_test,y_test, dynamic = False)
-            rmse = error['rmse'].mean()
-            #error = aic_mse['aic']
-            step = max_step - i
-            results['step'].append(step)
-            results['rmse'].append(rmse)
-            #results['aic'].append(aic)
-            if rmse < min_rmse:
-                min_rmse = rmse
-                df = x_train.copy()
-        results = pd.DataFrame(results)
-        self.fit(df, y_train)
-        error = self.pred_intervals(X_test[df.columns],y_test)
-        return (results,error,df)
-    
-    def forward_backward_selection(self, X_train,X_test, y_train,y_test):
-        results_f,X_trn = self.forward_selection(X_train,X_test, y_train,y_test, dynamic = False)
-        self.fit(X_trn, y_train)
-        x_test = X_test[list(X_trn.columns)]
-        #error = self.error(x_test,y_test, dynamic = False)
-        #min_aic = aic_mse['aic']
-        min_rmse = results_f['rmse'].min()
-        columns = list(X_trn.columns)
-        max_step = max([int(x.split('_')[-1]) for x in columns])
-        min_step = min([int(x.split('_')[-1]) for x in columns])
-        df = X_trn.copy()
-        results = {'step' : [max_step], 'rmse' : [deepcopy(min_rmse)]}
-        for i in range(min_step, max_step):
-            columns = [x for x in columns if int(x.split('_')[-1]) > i]
-            x_train = X_trn[columns]
-            x_test = X_test[columns]
-            self.fit(x_train, y_train)
-            error = self.error(x_test,y_test, dynamic = False)
-            rmse = error['rmse'].mean()
-            #error = aic_mse['aic']
-            step = max_step - i
-            results['step'].append(step)
-            results['rmse'].append(rmse)
-            #results['aic'].append(aic)
-            if rmse < min_rmse:
-                min_rmse = rmse
-                df = x_train.copy()
-        results = pd.DataFrame(results)
-        self.fit(df, y_train)
-        error = self.pred_intervals(X_test[df.columns],y_test)
-        return (results_f,results,error,df)
-    
-    def pred_intervals(self, X_test, y_test, p = .95):
-        low = (1-p)/2
-        high = 1-low
-        x_train = self.X
-        y_train = self.y
-        error_list = []
-        for i in range(1000):
-            x_sample_train = x_train.sample(frac = 1, replace = True)
-            y_sample_train = y_train.loc[x_sample_train.index]
-            model = KnnEnsemble()
-            model.fit(x_sample_train, y_sample_train)
-            preds = model. static(X_test)
-            e = y_test - preds
-            error_list.append(e)
-        error = pd.concat(error_list, ignore_index = True)
-        self.high = error.quantile(high).values
-        self.low = error.quantile(low).values
-        return error
+        return rmse
+          
 
-    def automatic(endogenous, exogenous = None, steps = 5):
+    def forward_selection(self, endogenous, freqstr, steps_ahead = 24, exogenous = None, max_steps = 5, interpolate = True, limit = 5, brk_at_min=False):
         """
         Enter endogenous and optional exogenous
         automatically format into the specified steps
         go through forward backward variable selection
         
         """
-        pass
+
+        
+        y,y_columns,endog=get_y(endogenous, freqstr, limit, steps_ahead)
+        if isinstance(exogenous, pd.DataFrame) or isinstance(exogenous, pd.Series):
+            exog = pd.DataFrame(exogenous.asfreq(freq = freqstr).interpolate(limit = limit).dropna())
+        else:
+            exog = None
+        x = pd.DataFrame(index = endog.index)
+        errors = {}
+        min_error = float('inf')
+        for i in range(1,max_steps+1):
+            if isinstance(exog, pd.DataFrame):
+                for column in exog.columns:
+                    x = return_x(exog[column], i, x)
+            else:
+                x = return_x(endog, i, x)
+            x = x.loc[y.index]
+            grouped = x.groupby(pd.Grouper(freq = 'Y'))
+            error_list = []
+            for g,v in grouped:
+                year = g.year
+                x_test = v.dropna()
+                y_test = y.loc[x_test.index]
+                x_train = x[(x.index> str(year+1)) | (x.index<str(year))].dropna()
+                y_train = y.loc[x_train.index]
+                self.fit(x_train, y_train)
+                err = self.error(x_test,y_test)
+                error_list.append(err)
+            s = pd.Series(index = y_columns, data = np.mean(error_list,axis = 0))
+            errors.update({'step_'+str(i):s})
+            error_df = pd.DataFrame(errors)
+            error = error_df.mean().min()
+            if brk_at_min:
+                if min_error>error:
+                    min_error = error
+                else:
+                    break
+        return (y, error_df)
     
+    def backward_selection(self, endogenous, freqstr, steps_ahead = 24, exogenous = None, steps = 5, interpolate = True, limit = 5, brk_at_min=False):
+
+        y,y_columns,endog=get_y(endogenous, freqstr, limit, steps_ahead)
+        if isinstance(exogenous, pd.DataFrame) or isinstance(exogenous, pd.Series):
+            exog = pd.DataFrame(exogenous.asfreq(freq = freqstr).interpolate(limit = limit).dropna())
+            x = get_data_df(exog, steps)
+        else:
+            exog = None
+            x = get_data(endog, steps)
+        min_error = float('inf')
+        x = x.loc[y.index]
+        errors = {}
+        columns = x.columns
+        max_step = max([int(x.split('_')[-1]) for x in columns])
+        min_step = min([int(x.split('_')[-1]) for x in columns])
+        for i in range(min_step, max_step+1):
+            cols = [x for x in columns if int(x.split('_')[-1]) >= i]
+            grouped = x.groupby(pd.Grouper(freq = 'Y'))
+            error_list = []
+            for g,v in grouped:
+                year = g.year
+                x_test = v.dropna()[cols]
+                y_test = y.loc[x_test.index]
+                x_train = x[(x.index> str(year+1)) | (x.index<str(year))].dropna()[cols]
+                y_train = y.loc[x_train.index]
+                self.fit(x_train, y_train)
+                err = self.error(x_test,y_test)
+                error_list.append(err)
+            s = pd.Series(index = y_columns, data = np.mean(error_list,axis = 0))
+            errors.update({'step_'+str(i):s})
+            error_df = pd.DataFrame(errors)
+            error = error_df.mean().min()
+            if min_error>error:
+                    min_error = error
+                    c = cols
+        return (error_df, c)
     
-    
+
+    def forward_backward_selection(self, endogenous, freqstr, steps_ahead = 24, 
+                                   exogenous = None, max_steps = 5, 
+                                   interpolate = True, limit = 5, 
+                                   brk_at_min=False, intervals = True, p = .95):
+        y,error_df = self.forward_selection(endogenous=endogenous, 
+                                             freqstr=freqstr, 
+                                             steps_ahead = steps_ahead, 
+                                             exogenous = exogenous, 
+                                             max_steps = max_steps, 
+                                             interpolate = interpolate, 
+                                             limit = limit, 
+                                             brk_at_min=brk_at_min)
+        
+        steps = int(error_df.mean().idxmin().split('_')[-1])
+        
+        error_df, cols = self.backward_selection(endogenous=endogenous, 
+                                                  freqstr=freqstr, 
+                                                  steps_ahead = steps_ahead, 
+                                                  exogenous = exogenous, 
+                                                  steps = steps, 
+                                                  interpolate = interpolate, 
+                                                  limit = limit, 
+                                                  brk_at_min=brk_at_min)
+        
+        y,_,endog=get_y(endogenous=endogenous, freqstr=freqstr, 
+                        steps_ahead = steps_ahead, limit = limit)
+                        
+        if isinstance(exogenous, pd.DataFrame) or isinstance(exogenous, pd.Series):
+            exog = pd.DataFrame(exogenous.asfreq(freq = freqstr).interpolate(limit = limit).dropna())
+            x = get_data_df(exog, steps)
+        else:
+            exog = None
+            x = get_data(endog, steps)
+        x = x[cols].dropna()
+        y=y.dropna()
+        idx = [dx for dx in y.index if dx in x.index]
+        y = y.loc[idx]
+        x = x.loc[idx]
+        
+        if intervals:
+            grouped = x.groupby(pd.Grouper(freq = 'Y'))
+            error_list = []
+            grps = len(grouped.groups)
+            boots = int(1000/grps)
+            for g,v in grouped:
+                year = g.year
+                x_test = v.dropna()
+                y_test = y.loc[x_test.index]
+                x_train = x[(x.index> str(year+1)) | (x.index<str(year))].dropna()
+                y_train = y.loc[x_train.index]
+                for i in range(boots):
+                    x_sample_train = x_train.sample(frac = 1, replace = True)
+                    y_sample_train = y_train.loc[x_sample_train.index]
+                    model = KnnEnsemble()
+                    model.fit(x_sample_train, y_sample_train)
+                    preds = model.static(x_test)
+                    e = y_test - preds
+                    error_list.append(e)
+            low = (1-p)/2
+            high = 1-low        
+            error = pd.concat(error_list, ignore_index = True)
+            self.high = error.quantile(high).values
+            self.low = error.quantile(low).values
+        
+        self.fit(x,y)
+        
+        return(error_df, x,y)
+        
+        
+   
