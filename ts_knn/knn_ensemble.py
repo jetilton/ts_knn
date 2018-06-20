@@ -5,12 +5,12 @@ from copy import copy, deepcopy
 from scipy.ndimage.interpolation import shift
 import pandas as pd
 
-def return_x(series, i, x):
-    x_columns = [series.name +'_t_'+ '{0:0>2}'.format(str(i))]
-    x_data = [list(series.shift((i)).values)]
-    x_df = pd.DataFrame(index = series.index, data = {k:v for k,v in zip(x_columns, x_data)}).dropna()
-    x = pd.concat([x,x_df], axis = 1).dropna()
-    return x
+#def return_x(series, i, x):
+#    x_columns = [series.name +'_t_'+ '{0:0>2}'.format(str(i))]
+#    x_data = [list(series.shift((i)).values)]
+#    x_df = pd.DataFrame(index = series.index, data = {k:v for k,v in zip(x_columns, x_data)}).dropna()
+#    x = pd.concat([x,x_df], axis = 1).dropna()
+#    return x
 
 
 def get_data(series, steps, forward = False):
@@ -18,7 +18,7 @@ def get_data(series, steps, forward = False):
         fb = -1
     else:
         fb = 1
-    columns = [series.name +'_t_'+ '{0:0>2}'.format(str(i)) for i in range(1,steps+1)]
+    columns = [series.name + '_t_'+ '{0:0>2}'.format(str(i)) for i in range(1,steps+1)]
     data = [list(series.shift(i*fb).values) for i in range(1,steps+1)]
     df = pd.DataFrame(index = series.index, data = {k:v for k,v in zip(columns, data)}).dropna()
     return df
@@ -31,17 +31,17 @@ def get_data_df(df, steps, forward = False):
     df = pd.concat(df_list, axis = 1)
     return df
 
-def get_y(endogenous, freqstr, limit, steps_ahead):
-        if isinstance(endogenous, pd.DataFrame):
-            if endogenous.shape[1]>1:
-                raise ValueError('Endogenous must be of shape (n,1)')
-            else:
-                endogenous=pd.Series(endogenous.iloc[:,0])
-        endog = endogenous.asfreq(freq = freqstr).interpolate(limit = limit).dropna()
-        y = get_data(endog, steps_ahead, forward = True)
-        y = y.dropna()
-        y_columns = [endog.name +'_t_'+ '{0:0>2}'.format(str(i)) for i in range(1,steps_ahead+1)]
-        return (y,y_columns,endog)
+#def get_y(endogenous, freqstr, limit, steps_ahead):
+#        if isinstance(endogenous, pd.DataFrame):
+#            if endogenous.shape[1]>1:
+#                raise ValueError('Endogenous must be of shape (n,1)')
+#            else:
+#                endogenous=pd.Series(endogenous.iloc[:,0])
+#        endog = endogenous.asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+#        y = get_data(endog, steps_ahead, forward = True)
+#        y = y.dropna()
+#        y_columns = [endog.name +'_t_'+ '{0:0>2}'.format(str(i)) for i in range(1,steps_ahead+1)]
+#        return (y,y_columns,endog)
 
 
     
@@ -76,19 +76,43 @@ class KnnEnsemble:
             self.model_dict.update({n:{'model':model}})
             
             
-    def fit(self, X, y, new_fit = True):
+#    def fit(self, X, y, new_fit = True):
+#        if new_fit:
+#            self.X = X
+#            self.y = y
+#        shape = np.shape(X)
+#        self.n = shape[0]
+#        try:
+#            self.params = shape[1]
+#        except IndexError:
+#            self.params = 1
+#        for n in self.n_neighbors[0]:
+#            self.model_dict[n]['model'] = self.model_dict[n]['model'].fit(X,y)
+    
+    def fit(self, x, y, freqstr, h, lags, limit = 5, new_fit = True):
+        x = pd.DataFrame(x).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+        if isinstance(y, pd.DataFrame):
+            if y.shape[1]>1:
+                raise ValueError('y must be of shape (n,1)')
+        else:
+            y = pd.DataFrame(y).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+        X = get_data_df(x, lags, forward = False)
+        Y = get_data_df(y, h, forward = True)
+        idx = [x for x in X.index if x in Y.index]
+        X = X.loc[idx]
+        Y = Y.loc[idx]
         if new_fit:
             self.X = X
-            self.y = y
-        shape = np.shape(X)
-        self.n = shape[0]
-        try:
-            self.params = shape[1]
-        except IndexError:
-            self.params = 1
+            self.y = Y
         for n in self.n_neighbors[0]:
-            self.model_dict[n]['model'] = self.model_dict[n]['model'].fit(X,y)
-            
+            self.model_dict[n]['model'] = self.model_dict[n]['model'].fit(X,Y)
+        
+    
+    
+    
+    
+    
+    
     def static(self, X):
         pred_list = []
         for n in self.n_neighbors[0]:
@@ -152,7 +176,7 @@ class KnnEnsemble:
         return rmse
           
 
-    def forward_selection(self, endogenous, freqstr, steps_ahead = 24, exogenous = None, max_steps = 5, interpolate = True, limit = 5, brk_at_min=False):
+    def forward_selection(self, endogenous, freqstr, h = 24, exogenous = None, lags = 5, interpolate = True, limit = 5, brk_at_min=False):
         """
         Enter endogenous and optional exogenous
         automatically format into the specified steps
@@ -161,7 +185,7 @@ class KnnEnsemble:
         """
 
         
-        y,y_columns,endog=get_y(endogenous, freqstr, limit, steps_ahead)
+        y,y_columns,endog=get_y(endogenous, freqstr, limit, h)
         if isinstance(exogenous, pd.DataFrame) or isinstance(exogenous, pd.Series):
             exog = pd.DataFrame(exogenous.asfreq(freq = freqstr).interpolate(limit = limit).dropna())
         else:
@@ -169,7 +193,7 @@ class KnnEnsemble:
         x = pd.DataFrame(index = endog.index)
         errors = {}
         min_error = float('inf')
-        for i in range(1,max_steps+1):
+        for i in range(1,lags+1):
             if isinstance(exog, pd.DataFrame):
                 for column in exog.columns:
                     x = return_x(exog[column], i, x)
