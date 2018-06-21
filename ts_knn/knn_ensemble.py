@@ -11,7 +11,11 @@ import pandas as pd
 #    x_df = pd.DataFrame(index = series.index, data = {k:v for k,v in zip(x_columns, x_data)}).dropna()
 #    x = pd.concat([x,x_df], axis = 1).dropna()
 #    return x
-
+def return_alike_axis(X,Y):
+    idx = [x for x in X.index if x in Y.index]
+    X = X.loc[idx]
+    Y = Y.loc[idx]
+    return (X,Y)
 
 def get_data(series, steps, forward = False):
     if forward:
@@ -59,6 +63,7 @@ class KnnEnsemble:
         self.metric_params = metric_params
         self.n_jobs = n_jobs
         self.kwargs = kwargs
+        
         self.model_dict = {}
         self.n = 0
         self.params = 0
@@ -71,6 +76,8 @@ class KnnEnsemble:
         self.freqstr = None
         self.limit = None
         self.x_test = None
+        self.h = None
+        
         
         for n in self.n_neighbors[0]:
             model = KNeighborsRegressor(n_neighbors = n, weights=self.weights, algorithm=self.algorithm, 
@@ -78,49 +85,39 @@ class KnnEnsemble:
                  n_jobs=self.n_jobs, **self.kwargs)
             
             self.model_dict.update({n:{'model':model}})
-            
-            
-#    def fit(self, X, y, new_fit = True):
-#        if new_fit:
-#            self.X = X
-#            self.y = y
-#        shape = np.shape(X)
-#        self.n = shape[0]
-#        try:
-#            self.params = shape[1]
-#        except IndexError:
-#            self.params = 1
-#        for n in self.n_neighbors[0]:
-#            self.model_dict[n]['model'] = self.model_dict[n]['model'].fit(X,y)
     
-    def fit(self, x, y, freqstr, h, lags, limit = 5, new_fit = True):
-        self.freqstr = freqstr
-        self.lags = lags
-        self.limit = limit
-        x = pd.DataFrame(x).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
-        self.shape = x.shape
-        if isinstance(y, pd.DataFrame):
-            if y.shape[1]>1:
-                raise ValueError('y must be of shape (n,1)')
+    def fit(self, x, y, freqstr='H', h=24, lags=15, limit = 5, new_fit = True):
+        if lags:
+            self.freqstr = freqstr
+            self.lags = lags
+            self.limit = limit
+            self.h = h
+            x = pd.DataFrame(x).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+            self.shape = x.shape
+            if isinstance(y, pd.DataFrame):
+                if y.shape[1]>1:
+                    raise ValueError('y must be of shape (n,1)')
+            else:
+                y = pd.DataFrame(y).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+            X = get_data_df(x, lags, forward = False)
+            Y = get_data_df(y, h, forward = True)
+            idx = [x for x in X.index if x in Y.index]
+            X = X.loc[idx]
+            Y = Y.loc[idx]
         else:
-            y = pd.DataFrame(y).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
-        X = get_data_df(x, lags, forward = False)
-        Y = get_data_df(y, h, forward = True)
-        idx = [x for x in X.index if x in Y.index]
-        X = X.loc[idx]
-        Y = Y.loc[idx]
+            X=x
+            Y=y
         if new_fit:
             self.X = X
             self.y = Y
         for n in self.n_neighbors[0]:
             self.model_dict[n]['model'] = self.model_dict[n]['model'].fit(X,Y)
         
-    def static(self, X, test = False):
-        X = pd.DataFrame(X)
-        if X.shape[1] != self.shape[1]:
-                raise ValueError('Your test data (i,j) must match training data shape')
-        X = X.asfreq(freq = self.freqstr).interpolate(limit = self.limit).dropna()
-        X = get_data_df(X, self.lags, forward = False).dropna()
+    def static(self, X, test = False, reshape = True):
+        if reshape:
+            X = pd.DataFrame(X)
+            X = X.asfreq(freq = self.freqstr).interpolate(limit = self.limit).dropna()
+            X = get_data_df(X, self.lags, forward = False).dropna()
         if test:
             self.x_test = X
         pred_list = []
@@ -132,24 +129,6 @@ class KnnEnsemble:
             pred_list.append(self.model_dict[n]['predict'])
         preds = np.mean(pred_list, axis = 0)
         return preds
-    
-    
-    
-#    
-#    def dynamic(self, X):
-#        steps = len(list(self.y.columns))
-#        Y_hat = []
-#        self.fit(self.X,self.y.iloc[:,0:1], new_fit = False)
-#        for x in X.values:
-#            data = np.array(x).reshape(1,len(x))
-#            y_hat = []
-#            for step in range(steps):
-#                y1 = self.static(data)[0][0]
-#                data = shift(data,1, cval = y1)
-#                y_hat.append(y1)
-#            Y_hat.append(y_hat)
-#        self.fit(self.X,self.y)
-#        return(Y_hat)
     
     def predict(self, X, dynamic = False, freqstr = 'H', step = 1):
         if dynamic:
@@ -177,6 +156,9 @@ class KnnEnsemble:
     
     
     def error(self, X_test, y_test, dynamic = False):
+        y_test = pd.DataFrame(y_test).asfreq(freq = self.freqstr).interpolate(limit = self.limit).dropna()
+        y_test = get_data_df(y_test, self.h, forward = True)
+        X_test,y_test = return_alike_axis(X_test,y_test)
         if dynamic:
             y_hat = self.dynamic(X_test)
         else:
@@ -184,159 +166,121 @@ class KnnEnsemble:
         rmse = np.sqrt((np.subtract(y_test,y_hat)**2).mean())
         #aic = (np.log(rmse/self.n) + 2 * (self.params +1)).mean()
         return rmse
-          
+    
 
-    def forward_selection(self, endogenous, freqstr, h = 24, exogenous = None, lags = 5, interpolate = True, limit = 5, brk_at_min=False):
-        """
-        Enter endogenous and optional exogenous
-        automatically format into the specified steps
-        go through forward backward variable selection
-        
-        """
 
-        
-        y,y_columns,endog=get_y(endogenous, freqstr, limit, h)
-        if isinstance(exogenous, pd.DataFrame) or isinstance(exogenous, pd.Series):
-            exog = pd.DataFrame(exogenous.asfreq(freq = freqstr).interpolate(limit = limit).dropna())
-        else:
-            exog = None
-        x = pd.DataFrame(index = endog.index)
+    def forward_selection(self, x_train, y_train, x_test, y_test, freqstr, h = 24, max_lags = 15, interpolate = True, limit = 5, brk_at_min=False):
+        X_test = pd.DataFrame(x_test).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+        Y_test = pd.DataFrame(y_test).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+        Y_test = get_data_df(Y_test, h, forward = True).dropna()
+        X_test,Y_test = return_alike_axis(X_test,Y_test)
         errors = {}
-        min_error = float('inf')
-        for i in range(1,lags+1):
-            if isinstance(exog, pd.DataFrame):
-                for column in exog.columns:
-                    x = return_x(exog[column], i, x)
-            else:
-                x = return_x(endog, i, x)
-            x = x.loc[y.index]
-            grouped = x.groupby(pd.Grouper(freq = 'Y'))
-            error_list = []
-            for g,v in grouped:
-                year = g.year
-                x_test = v.dropna()
-                y_test = y.loc[x_test.index]
-                x_train = x[(x.index> str(year+1)) | (x.index<str(year))].dropna()
-                y_train = y.loc[x_train.index]
-                self.fit(x_train, y_train)
-                err = self.error(x_test,y_test)
-                error_list.append(err)
-            s = pd.Series(index = y_columns, data = np.mean(error_list,axis = 0))
-            errors.update({'step_'+str(i):s})
-            error_df = pd.DataFrame(errors)
-            error = error_df.mean().min()
+        min_rmse = float('inf')
+        for lag in range(1,max_lags+1):
+            self.fit(x_train, y_train, freqstr=freqstr, h=h, lags=lag, limit=limit, new_fit = True)
+            y_hat = self.static(X_test, test = False)
+            rmse = np.sqrt((np.subtract(Y_test[lag:],y_hat)**2).mean())
+            errors.update({'lag_'+str(lag):rmse})
             if brk_at_min:
-                if min_error>error:
-                    min_error = error
+                if rmse.mean()<min_rmse:
+                    min_rmse = rmse.mean()
                 else:
                     break
-        return (y, error_df)
+        return pd.DataFrame(data = errors)
     
-    def backward_selection(self, endogenous, freqstr, steps_ahead = 24, exogenous = None, steps = 5, interpolate = True, limit = 5, brk_at_min=False):
-
-        y,y_columns,endog=get_y(endogenous, freqstr, limit, steps_ahead)
-        if isinstance(exogenous, pd.DataFrame) or isinstance(exogenous, pd.Series):
-            exog = pd.DataFrame(exogenous.asfreq(freq = freqstr).interpolate(limit = limit).dropna())
-            x = get_data_df(exog, steps)
-        else:
-            exog = None
-            x = get_data(endog, steps)
-        min_error = float('inf')
-        x = x.loc[y.index]
+    def backward_selection(self, x_train, y_train, x_test, y_test, freqstr='H', h = 24, lags = 15, interpolate = True, limit = 5, brk_at_min=False):
+        """
+        Given an x_train, y_train and x_test, y_test the backward selection removes the beginning lags and records the error
+        returns the error dataframe
+        """
+        X_test = pd.DataFrame(x_test).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+        Y_test = pd.DataFrame(y_test).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+        x_test = get_data_df(X_test, lags, forward = False)
+        y_test = get_data_df(Y_test, h, forward = True)
+        x_test,y_test = return_alike_axis(x_test,y_test)
+        self.fit(x_train, y_train, freqstr=freqstr, h=h, lags=lags, limit=limit, new_fit = True)
+        columns = self.X.columns
         errors = {}
-        columns = x.columns
-        max_step = max([int(x.split('_')[-1]) for x in columns])
-        min_step = min([int(x.split('_')[-1]) for x in columns])
-        for i in range(min_step, max_step+1):
-            cols = [x for x in columns if int(x.split('_')[-1]) >= i]
-            grouped = x.groupby(pd.Grouper(freq = 'Y'))
-            error_list = []
-            for g,v in grouped:
-                year = g.year
-                x_test = v.dropna()[cols]
-                y_test = y.loc[x_test.index]
-                x_train = x[(x.index> str(year+1)) | (x.index<str(year))].dropna()[cols]
-                y_train = y.loc[x_train.index]
-                self.fit(x_train, y_train)
-                err = self.error(x_test,y_test)
-                error_list.append(err)
-            s = pd.Series(index = y_columns, data = np.mean(error_list,axis = 0))
-            errors.update({'step_'+str(i):s})
-            error_df = pd.DataFrame(errors)
-            error = error_df.mean().min()
-            if min_error>error:
-                    min_error = error
-                    c = cols
-        return (error_df, c)
-    
+        
+        for lag in range(1,lags+1):
+            cols = [x for x in columns if int(x.split('_')[-1]) >= lag]
+            self.fit(self.X[cols],self.y, lags = False)
+            y_hat = self.static(x_test[cols], test = False, reshape = False)            
+            rmse = np.sqrt((np.subtract(y_test,y_hat)**2).mean())
+            errors.update({'lag_'+str(lags-lag+1):rmse})
+        errors_df = pd.DataFrame(errors)
+        return errors_df
+        
 
-    def forward_backward_selection(self, endogenous, freqstr, steps_ahead = 24, 
-                                   exogenous = None, max_steps = 5, 
-                                   interpolate = True, limit = 5, 
-                                   brk_at_min=False, intervals = True, p = .95):
-        y,error_df = self.forward_selection(endogenous=endogenous, 
-                                             freqstr=freqstr, 
-                                             steps_ahead = steps_ahead, 
-                                             exogenous = exogenous, 
-                                             max_steps = max_steps, 
-                                             interpolate = interpolate, 
-                                             limit = limit, 
-                                             brk_at_min=brk_at_min)
-        
-        steps = int(error_df.mean().idxmin().split('_')[-1])
-        
-        error_df, cols = self.backward_selection(endogenous=endogenous, 
-                                                  freqstr=freqstr, 
-                                                  steps_ahead = steps_ahead, 
-                                                  exogenous = exogenous, 
-                                                  steps = steps, 
-                                                  interpolate = interpolate, 
-                                                  limit = limit, 
-                                                  brk_at_min=brk_at_min)
-        
-        y,_,endog=get_y(endogenous=endogenous, freqstr=freqstr, 
-                        steps_ahead = steps_ahead, limit = limit)
-                        
-        if isinstance(exogenous, pd.DataFrame) or isinstance(exogenous, pd.Series):
-            exog = pd.DataFrame(exogenous.asfreq(freq = freqstr).interpolate(limit = limit).dropna())
-            x = get_data_df(exog, steps)
-        else:
-            exog = None
-            x = get_data(endog, steps)
-        x = x[cols].dropna()
-        y=y.dropna()
-        idx = [dx for dx in y.index if dx in x.index]
-        y = y.loc[idx]
-        x = x.loc[idx]
-        
-        if intervals:
-            grouped = x.groupby(pd.Grouper(freq = 'Y'))
-            error_list = []
-            grps = len(grouped.groups)
-            boots = int(1000/grps)
-            for g,v in grouped:
-                year = g.year
-                x_test = v.dropna()
-                y_test = y.loc[x_test.index]
-                x_train = x[(x.index> str(year+1)) | (x.index<str(year))].dropna()
-                y_train = y.loc[x_train.index]
-                for i in range(boots):
-                    x_sample_train = x_train.sample(frac = 1, replace = True)
-                    y_sample_train = y_train.loc[x_sample_train.index]
-                    model = KnnEnsemble()
-                    model.fit(x_sample_train, y_sample_train)
-                    preds = model.static(x_test)
-                    e = y_test - preds
-                    error_list.append(e)
-            low = (1-p)/2
-            high = 1-low        
-            error = pd.concat(error_list, ignore_index = True)
-            self.high = error.quantile(high).values
-            self.low = error.quantile(low).values
-        
-        self.fit(x,y)
-        
-        return(error_df, x,y)
-        
-        
+#    
+#
+#    def forward_backward_selection(self, endogenous, freqstr, steps_ahead = 24, 
+#                                   exogenous = None, max_steps = 5, 
+#                                   interpolate = True, limit = 5, 
+#                                   brk_at_min=False, intervals = True, p = .95):
+#        y,error_df = self.forward_selection(endogenous=endogenous, 
+#                                             freqstr=freqstr, 
+#                                             steps_ahead = steps_ahead, 
+#                                             exogenous = exogenous, 
+#                                             max_steps = max_steps, 
+#                                             interpolate = interpolate, 
+#                                             limit = limit, 
+#                                             brk_at_min=brk_at_min)
+#        
+#        steps = int(error_df.mean().idxmin().split('_')[-1])
+#        
+#        error_df, cols = self.backward_selection(endogenous=endogenous, 
+#                                                  freqstr=freqstr, 
+#                                                  steps_ahead = steps_ahead, 
+#                                                  exogenous = exogenous, 
+#                                                  steps = steps, 
+#                                                  interpolate = interpolate, 
+#                                                  limit = limit, 
+#                                                  brk_at_min=brk_at_min)
+#        
+#        y,_,endog=get_y(endogenous=endogenous, freqstr=freqstr, 
+#                        steps_ahead = steps_ahead, limit = limit)
+#                        
+#        if isinstance(exogenous, pd.DataFrame) or isinstance(exogenous, pd.Series):
+#            exog = pd.DataFrame(exogenous.asfreq(freq = freqstr).interpolate(limit = limit).dropna())
+#            x = get_data_df(exog, steps)
+#        else:
+#            exog = None
+#            x = get_data(endog, steps)
+#        x = x[cols].dropna()
+#        y=y.dropna()
+#        idx = [dx for dx in y.index if dx in x.index]
+#        y = y.loc[idx]
+#        x = x.loc[idx]
+#        
+#        if intervals:
+#            grouped = x.groupby(pd.Grouper(freq = 'Y'))
+#            error_list = []
+#            grps = len(grouped.groups)
+#            boots = int(1000/grps)
+#            for g,v in grouped:
+#                year = g.year
+#                x_test = v.dropna()
+#                y_test = y.loc[x_test.index]
+#                x_train = x[(x.index> str(year+1)) | (x.index<str(year))].dropna()
+#                y_train = y.loc[x_train.index]
+#                for i in range(boots):
+#                    x_sample_train = x_train.sample(frac = 1, replace = True)
+#                    y_sample_train = y_train.loc[x_sample_train.index]
+#                    model = KnnEnsemble()
+#                    model.fit(x_sample_train, y_sample_train)
+#                    preds = model.static(x_test)
+#                    e = y_test - preds
+#                    error_list.append(e)
+#            low = (1-p)/2
+#            high = 1-low        
+#            error = pd.concat(error_list, ignore_index = True)
+#            self.high = error.quantile(high).values
+#            self.low = error.quantile(low).values
+#        
+#        self.fit(x,y)
+#        
+#        return(error_df, x,y)
+#        
+#        
    
