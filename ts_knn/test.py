@@ -132,6 +132,15 @@ class TestMethods(unittest.TestCase):
         min_lag = int(backward_errors.mean().idxmin().split('_')[-1])
         self.assertEqual(model.X.shape[1] == lags-min_lag+1, True)
         
+    def test_automatic(self):
+        x = self.endogenous
+        x = x.iloc[:,0] 
+        y = x
+        max_lags = 15
+        model = KnnEnsemble()
+        gr = model.automatic(x,y,'H', 24, max_lags=max_lags, limit = 5, brk_at_min = True)
+        self.assertEqual(isinstance(gr, pd.core.groupby.groupby.SeriesGroupBy), True)
+        
 if __name__ == '__main__':
     unittest.main()
     

@@ -35,31 +35,17 @@ def get_data_df(df, steps, forward = False):
     df = pd.concat(df_list, axis = 1)
     return df
 
-def process_x_y(x, y, freqstr='H', h=24, lags=15, limit = 5):
-        x = pd.DataFrame(x).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
-        if isinstance(y, pd.DataFrame):
-            if y.shape[1]>1:
+def preprocess(data, y=False, freqstr='H', steps = 24, limit = 5, forward = False):
+    if y:
+        if isinstance(data, pd.DataFrame):
+            if data.shape[1]>1:
                 raise ValueError('y must be of shape (n,1)')
-        else:
-            y = pd.DataFrame(y).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
-        X = get_data_df(x, lags, forward = False)
-        Y = get_data_df(y, h, forward = True)
-        X,Y = return_alike_axis(X,Y)
-        return X,Y
-#def get_y(endogenous, freqstr, limit, steps_ahead):
-#        if isinstance(endogenous, pd.DataFrame):
-#            if endogenous.shape[1]>1:
-#                raise ValueError('Endogenous must be of shape (n,1)')
-#            else:
-#                endogenous=pd.Series(endogenous.iloc[:,0])
-#        endog = endogenous.asfreq(freq = freqstr).interpolate(limit = limit).dropna()
-#        y = get_data(endog, steps_ahead, forward = True)
-#        y = y.dropna()
-#        y_columns = [endog.name +'_t_'+ '{0:0>2}'.format(str(i)) for i in range(1,steps_ahead+1)]
-#        return (y,y_columns,endog)
-
-
+    else:
+        data = pd.DataFrame(data).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+    data = get_data_df(data, steps, forward = forward)
     
+    return data
+
 class KnnEnsemble:
     
     def __init__(self, n_neighbors=[3,5,7], weights='uniform', algorithm='auto', 
@@ -97,10 +83,6 @@ class KnnEnsemble:
             
             self.model_dict.update({n:{'model':model}})
             
-            
-    
-        
-    
     def fit(self, x, y, freqstr='H', h=24, lags=15, limit = 5, new_fit = True):
         if lags:
             self.freqstr = freqstr
@@ -180,8 +162,6 @@ class KnnEnsemble:
         #aic = (np.log(rmse/self.n) + 2 * (self.params +1)).mean()
         return rmse
     
-
-
     def forward_selection(self, x_train, y_train, x_test, y_test, freqstr='H', h = 24, max_lags = 15, interpolate = True, limit = 5, brk_at_min=False):
         X_test = pd.DataFrame(x_test).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
         Y_test = pd.DataFrame(y_test).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
@@ -226,6 +206,7 @@ class KnnEnsemble:
     
     
     def forward_backward_selection(self, x_train, y_train, x_test, y_test, freqstr='H', h = 24, max_lags = 15, interpolate = True, limit = 5, brk_at_min=True):
+        
         forward_errors = self.forward_selection(x_train, y_train, x_test, 
                                                 y_test, freqstr=freqstr, h = h, 
                                                 max_lags = max_lags, 
@@ -244,9 +225,9 @@ class KnnEnsemble:
                                                   brk_at_min=brk_at_min)
         min_lag = int(backward_errors.mean().idxmin().split('_')[-1])
         
-        
-
-        x_train,y_train = process_x_y(x_train, y_train, freqstr=freqstr, h=h, lags=lags, limit = limit)
+        x_train = preprocess(x_train, steps=lags, limit = limit)
+        y_train = preprocess(y_train, steps=h, limit = limit)
+        x_train, y_train = return_alike_axis(x_train, y_train)
         x_train = x_train.iloc[:,min_lag-1:]
         y_train = y_train.iloc[:,min_lag-1:]
         
@@ -254,6 +235,27 @@ class KnnEnsemble:
         
         
         return backward_errors
+    
+    
+    
+    def automatic(self, endogenous, exogenous=None, offset='Y', freqstr='H', h = 24, max_lags = 15, interpolate = True, limit = 5, brk_at_min=False):
+        """
+        gets the data and breaks it into the designated sasonality
+        goes through forward selection averages values
+        Get lowest value for forward selection go through backward selection
+        get prediction interval
+        fit model without last season
+        return prediction with intervals (this will be a new class eventually)
+        
+        """
+        
+        grouped = endogenous.groupby(pd.Grouper(freq = offset))
+        
+        
+        
+        return grouped
+      
+        
 
 #    
 #
