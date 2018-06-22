@@ -115,7 +115,22 @@ class TestMethods(unittest.TestCase):
         lags = 15
         model = KnnEnsemble()
         errors=model.backward_selection(x_train,y_train, x_test,y_test,'H', 24, lags=lags, limit = 5, brk_at_min = True)
-       
+        
+    def test_forward_backward_selection(self):
+        x = self.endogenous
+        x = x.iloc[:,0] 
+        index = x.index[int(len(x)*.85)]
+        x_train = x[:index]
+        y_train = x_train
+        x_test = x[index:]
+        y_test = x_test
+        max_lags = 15
+        model = KnnEnsemble()
+        forward_errors = model.forward_selection(x_train,y_train, x_test,y_test,'H', 24, max_lags=max_lags, limit = 5, brk_at_min = True)
+        lags = int(forward_errors.mean().idxmin().split('_')[-1]) 
+        backward_errors=model.forward_backward_selection(x_train,y_train, x_test,y_test,'H', 24, max_lags=max_lags, limit = 5, brk_at_min = True)
+        min_lag = int(backward_errors.mean().idxmin().split('_')[-1])
+        self.assertEqual(model.X.shape[1] == lags-min_lag+1, True)
         
 if __name__ == '__main__':
     unittest.main()

@@ -35,6 +35,17 @@ def get_data_df(df, steps, forward = False):
     df = pd.concat(df_list, axis = 1)
     return df
 
+def process_x_y(x, y, freqstr='H', h=24, lags=15, limit = 5):
+        x = pd.DataFrame(x).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+        if isinstance(y, pd.DataFrame):
+            if y.shape[1]>1:
+                raise ValueError('y must be of shape (n,1)')
+        else:
+            y = pd.DataFrame(y).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+        X = get_data_df(x, lags, forward = False)
+        Y = get_data_df(y, h, forward = True)
+        X,Y = return_alike_axis(X,Y)
+        return X,Y
 #def get_y(endogenous, freqstr, limit, steps_ahead):
 #        if isinstance(endogenous, pd.DataFrame):
 #            if endogenous.shape[1]>1:
@@ -85,6 +96,10 @@ class KnnEnsemble:
                  n_jobs=self.n_jobs, **self.kwargs)
             
             self.model_dict.update({n:{'model':model}})
+            
+            
+    
+        
     
     def fit(self, x, y, freqstr='H', h=24, lags=15, limit = 5, new_fit = True):
         if lags:
@@ -101,9 +116,7 @@ class KnnEnsemble:
                 y = pd.DataFrame(y).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
             X = get_data_df(x, lags, forward = False)
             Y = get_data_df(y, h, forward = True)
-            idx = [x for x in X.index if x in Y.index]
-            X = X.loc[idx]
-            Y = Y.loc[idx]
+            X,Y = return_alike_axis(X,Y)
         else:
             X=x
             Y=y
@@ -169,7 +182,7 @@ class KnnEnsemble:
     
 
 
-    def forward_selection(self, x_train, y_train, x_test, y_test, freqstr, h = 24, max_lags = 15, interpolate = True, limit = 5, brk_at_min=False):
+    def forward_selection(self, x_train, y_train, x_test, y_test, freqstr='H', h = 24, max_lags = 15, interpolate = True, limit = 5, brk_at_min=False):
         X_test = pd.DataFrame(x_test).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
         Y_test = pd.DataFrame(y_test).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
         Y_test = get_data_df(Y_test, h, forward = True).dropna()
@@ -207,10 +220,40 @@ class KnnEnsemble:
             self.fit(self.X[cols],self.y, lags = False)
             y_hat = self.static(x_test[cols], test = False, reshape = False)            
             rmse = np.sqrt((np.subtract(y_test,y_hat)**2).mean())
-            errors.update({'lag_'+str(lags-lag+1):rmse})
+            errors.update({'lag_'+str(lag):rmse})
         errors_df = pd.DataFrame(errors)
         return errors_df
+    
+    
+    def forward_backward_selection(self, x_train, y_train, x_test, y_test, freqstr='H', h = 24, max_lags = 15, interpolate = True, limit = 5, brk_at_min=True):
+        forward_errors = self.forward_selection(x_train, y_train, x_test, 
+                                                y_test, freqstr=freqstr, h = h, 
+                                                max_lags = max_lags, 
+                                                interpolate = interpolate, 
+                                                limit = limit, 
+                                                brk_at_min=brk_at_min)
         
+        lags = int(forward_errors.mean().idxmin().split('_')[-1])
+        
+        backward_errors = self.backward_selection(x_train, y_train, 
+                                                  x_test, y_test, 
+                                                  freqstr=freqstr, h = h, 
+                                                  lags = lags, 
+                                                  interpolate = interpolate, 
+                                                  limit = limit, 
+                                                  brk_at_min=brk_at_min)
+        min_lag = int(backward_errors.mean().idxmin().split('_')[-1])
+        
+        
+
+        x_train,y_train = process_x_y(x_train, y_train, freqstr=freqstr, h=h, lags=lags, limit = limit)
+        x_train = x_train.iloc[:,min_lag-1:]
+        y_train = y_train.iloc[:,min_lag-1:]
+        
+        self.fit(x_train,y_train, lags = False)
+        
+        
+        return backward_errors
 
 #    
 #
