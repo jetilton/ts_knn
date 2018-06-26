@@ -24,7 +24,7 @@ y_test = pd.read_csv('y_test.csv', index_col = 0)[:6]
 
 class TestMethods(unittest.TestCase):
     start_date = (2007, 3, 1)
-    end_date =  (2010, 4,27)
+    end_date =  (2017, 4,27)
     end_date_exog =  (2011, 4,27)
     endogenous = get_cwms('TDA.%-Saturation-TDG.Inst.1Hour.0.GOES-COMPUTED-REV', start_date = start_date, end_date = end_date, public = True, fill = True)
     exogenous =  get_cwms('JHAW.%-Saturation-TDG.Inst.1Hour.0.GOES-COMPUTED-REV', start_date = start_date, end_date = end_date_exog, public = True, fill = True)
@@ -95,10 +95,12 @@ class TestMethods(unittest.TestCase):
         x = x.iloc[:,0] 
         index = x.index[int(len(x)*.85)]
         x_train = x[:index]
+        y_train = x_train.copy()
         x_test = x[index:]
+        y_test = x_test.copy()
         lags = 15
         model = KnnEnsemble()
-        errors = model.forward_selection(x_train,x_train, x_test,x_test,'H', 24, max_lags=lags, limit = 5, brk_at_min = True)
+        errors = model.forward_selection(x_train,y_train, x_test,y_test,'H', 24, max_lags=lags, limit = 5, brk_at_min = True)
         errors.mean()
         min_test = errors.mean()[-1]>errors.mean()[-2] and errors.mean()[-3]>errors.mean()[-2]
         self.assertEqual(min_test, True)
@@ -133,13 +135,10 @@ class TestMethods(unittest.TestCase):
         self.assertEqual(model.X.shape[1] == lags-min_lag+1, True)
         
     def test_automatic(self):
-        x = self.endogenous
-        x = x.iloc[:,0] 
-        y = x
         max_lags = 15
         model = KnnEnsemble()
-        gr = model.automatic(x,y,'H', 24, max_lags=max_lags, limit = 5, brk_at_min = True)
-        self.assertEqual(isinstance(gr, pd.core.groupby.groupby.SeriesGroupBy), True)
+        x_test = model.automatic(endogenous=self.endogenous,exogenous=self.exogenous,offset='Y',freqstr='H', h=24, max_lags=max_lags, limit = 5, brk_at_min = True)
+        #self.assertEqual(x_test.shape[1], 2)
         
 if __name__ == '__main__':
     unittest.main()

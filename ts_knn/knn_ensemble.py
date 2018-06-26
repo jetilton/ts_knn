@@ -167,11 +167,14 @@ class KnnEnsemble:
         Y_test = pd.DataFrame(y_test).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
         Y_test = get_data_df(Y_test, h, forward = True).dropna()
         X_test,Y_test = return_alike_axis(X_test,Y_test)
+        
         errors = {}
         min_rmse = float('inf')
         for lag in range(1,max_lags+1):
             self.fit(x_train, y_train, freqstr=freqstr, h=h, lags=lag, limit=limit, new_fit = True)
-            y_hat = self.static(X_test, test = False)
+            x_test = get_data_df(X_test, lag, forward = False)
+            x_test, y_test = return_alike_axis(x_test,Y_test)
+            y_hat = self.static(x_test, test = False, reshape = False)
             rmse = np.sqrt((np.subtract(Y_test[lag:],y_hat)**2).mean())
             errors.update({'lag_'+str(lag):rmse})
             if brk_at_min:
@@ -248,14 +251,76 @@ class KnnEnsemble:
         return prediction with intervals (this will be a new class eventually)
         
         """
+        if isinstance(exogenous, pd.DataFrame) or isinstance(exogenous, pd.Series):
+            endogenous,exogenous =  return_alike_axis(endogenous,exogenous)
+            
+        end_grpd = endogenous.groupby(pd.Grouper(freq = offset))
+        error_dict = {}
+        i=0
         
-        grouped = endogenous.groupby(pd.Grouper(freq = offset))
+        for g,v in end_grpd:
+            x_test = v.dropna()
+            x_train = endogenous.copy().drop(index = x_test.index)
+            y_test = v.dropna()
+            y_train = x_train.copy()
+            if isinstance(exogenous, pd.DataFrame) or isinstance(exogenous, pd.Series):
+                x_test = pd.concat([x_test, exogenous.loc[x_test.index]], axis = 1).dropna()
+                x_train = pd.concat([x_train, exogenous.loc[x_train.index]], axis = 1).dropna()
+            x_train, y_train = return_alike_axis(x_train,y_train)
+            x_test, y_test = return_alike_axis(x_test,y_test)
+            errors = model.forward_selection(x_train, y_train, x_test, y_test, 
+                                       freqstr=freqstr, h = h, 
+                                       max_lags = max_lags, 
+                                       interpolate = interpolate, limit = limit, 
+                                       brk_at_min=False)
+            
+            error_dict.update({'offset_'+str(i):errors.mean()})
+            i+=1
+        df = pd.DataFrame(error_dict)
+        # do not use last offset to determine lags
+        lags = int(df.iloc[:,:-1].mean(axis = 1).idxmin().split('_')[-1])
         
         
         
-        return grouped
+        error_dict = {}
+        i=0
+        for g,v in end_grpd:
+            x_test = v.dropna()
+            x_train = endogenous.copy().drop(index = x_test.index)
+            y_test = v.dropna()
+            y_train = x_train.copy()
+            if isinstance(exogenous, pd.DataFrame) or isinstance(exogenous, pd.Series):
+                x_test = pd.concat([x_test, exogenous.loc[x_test.index]], axis = 1).dropna()
+                x_train = pd.concat([x_train, exogenous.loc[x_train.index]], axis = 1).dropna()
+            x_train, y_train = return_alike_axis(x_train,y_train)
+            x_test, y_test = return_alike_axis(x_test,y_test)
+            errors = model.backward_selection(x_train, y_train, x_test, y_test, 
+                                        freqstr=freqstr, h = h, lags = lags, 
+                                        interpolate = interpolate, 
+                                        limit = limit, brk_at_min=False)
+            error_dict.update({'offset_'+str(i):errors.mean()})
+            i+=1
+        df = pd.DataFrame(error_dict)
+        lag = int(df.iloc[:,:-1].mean(axis = 1).idxmin().split('_')[-1])
+        last_offset = [v for g,v in end_grpd][-1].dropna()
+        x_train = endogenous.drop(index = last_offset.index)
+        y_train =  get_data_df(x_train.copy(), h, forward = True)
+        if isinstance(exogenous, pd.DataFrame) or isinstance(exogenous, pd.Series):
+            x_train = pd.concat([x_train, exogenous.loc[x_train.index]], axis = 1).dropna()
+        x_train = get_data_df(x_train, lags, forward = False).iloc[:,lag-1:]
+        x_train, y_train = return_alike_axis(x_train,y_train)
+        model.fit(x_train, y_train, lags = False)
+        
+        x_test = get_data_df(last_offset, lags, forward = False).iloc[:,lag-1:]
+        x_predict = pd.DataFrame(data =x_test.iloc[-1,:].values.reshape(1,10), columns = x_test.columns)
+        y_test = get_data_df(last_offset.copy(), h, forward = True)
+        x_test, y_test = return_alike_axis(x_test,y_test)
+        y_hat = model.static(x_test, test = False, reshape = False)            
+        rmse = np.sqrt((np.subtract(y_test,y_hat)**2).mean())
+        
+        y_hat_final = model.static(x_predict, test = False, reshape = False)   
+        return error_dict
       
-        
 
 #    
 #
