@@ -1,16 +1,9 @@
 # -*- coding: utf-8 -*-
 from sklearn.neighbors import KNeighborsRegressor
 import numpy as np
-from copy import copy, deepcopy
-from scipy.ndimage.interpolation import shift
 import pandas as pd
 
-#def return_x(series, i, x):
-#    x_columns = [series.name +'_t_'+ '{0:0>2}'.format(str(i))]
-#    x_data = [list(series.shift((i)).values)]
-#    x_df = pd.DataFrame(index = series.index, data = {k:v for k,v in zip(x_columns, x_data)}).dropna()
-#    x = pd.concat([x,x_df], axis = 1).dropna()
-#    return x
+
 def return_alike_axis(X,Y):
     idx = [x for x in X.index if x in Y.index]
     X = X.loc[idx]
@@ -125,18 +118,16 @@ class KnnEnsemble:
         preds = np.mean(pred_list, axis = 0)
         return preds
     
-    def predict(self, X, dynamic = False, freqstr = 'H', step = 1):
-        if dynamic:
-            preds =  self.dynamic(X)
-        else:
-            preds =  self.static(X)
+    def predict(self, X, freqstr = 'H', h = 24):
+        
+        preds =  self.static(X, reshape = False)
         df_list = []
         idx = X.index
         date = ''
         for index,pred in enumerate(preds):
             if freqstr:
                 ts = idx[index] 
-                date= pd.date_range(ts, periods=len(pred), freq=freqstr) + step
+                date= pd.date_range(ts, periods=len(pred), freq=freqstr) + 1
             df = pd.DataFrame(data = pred, columns = ['y_hat'])
             if isinstance(date, pd.core.indexes.datetimes.DatetimeIndex):
                 df['date'] = date
@@ -238,26 +229,14 @@ class KnnEnsemble:
         
         
         return backward_errors
-    
-    
-    
-    def automatic(self, endogenous, exogenous=None, offset='Y', freqstr='H', h = 24, max_lags = 15, interpolate = True, limit = 5, brk_at_min=False):
-        """
-        gets the data and breaks it into the designated sasonality
-        goes through forward selection averages values
-        Get lowest value for forward selection go through backward selection
-        get prediction interval
-        fit model without last season
-        return prediction with intervals (this will be a new class eventually)
-        
-        """
+    def __rtrn_fwd_lags(self, endogenous, exogenous=None, offset='Y', freqstr='H', h = 24, max_lags = 15, interpolate = True, limit = 5, brk_at_min=False):
         if isinstance(exogenous, pd.DataFrame) or isinstance(exogenous, pd.Series):
             endogenous,exogenous =  return_alike_axis(endogenous,exogenous)
             
         end_grpd = endogenous.groupby(pd.Grouper(freq = offset))
         error_dict = {}
         i=0
-        
+        #Determine error in each offset for variale selection (Forward selection process)
         for g,v in end_grpd:
             x_test = v.dropna()
             x_train = endogenous.copy().drop(index = x_test.index)
@@ -268,7 +247,7 @@ class KnnEnsemble:
                 x_train = pd.concat([x_train, exogenous.loc[x_train.index]], axis = 1).dropna()
             x_train, y_train = return_alike_axis(x_train,y_train)
             x_test, y_test = return_alike_axis(x_test,y_test)
-            errors = model.forward_selection(x_train, y_train, x_test, y_test, 
+            errors = self.forward_selection(x_train, y_train, x_test, y_test, 
                                        freqstr=freqstr, h = h, 
                                        max_lags = max_lags, 
                                        interpolate = interpolate, limit = limit, 
@@ -279,9 +258,11 @@ class KnnEnsemble:
         df = pd.DataFrame(error_dict)
         # do not use last offset to determine lags
         lags = int(df.iloc[:,:-1].mean(axis = 1).idxmin().split('_')[-1])
-        
-        
-        
+        return lags
+    
+    def __rtrn_bck_lag(self, endogenous, fwd_lags, exogenous=None, offset='Y', freqstr='H', h = 24, interpolate = True, limit = 5, brk_at_min=False):
+        #backward selection process
+        end_grpd = endogenous.groupby(pd.Grouper(freq = offset))
         error_dict = {}
         i=0
         for g,v in end_grpd:
@@ -294,103 +275,52 @@ class KnnEnsemble:
                 x_train = pd.concat([x_train, exogenous.loc[x_train.index]], axis = 1).dropna()
             x_train, y_train = return_alike_axis(x_train,y_train)
             x_test, y_test = return_alike_axis(x_test,y_test)
-            errors = model.backward_selection(x_train, y_train, x_test, y_test, 
-                                        freqstr=freqstr, h = h, lags = lags, 
+            errors = self.backward_selection(x_train, y_train, x_test, y_test, 
+                                        freqstr=freqstr, h = h, lags = fwd_lags, 
                                         interpolate = interpolate, 
                                         limit = limit, brk_at_min=False)
             error_dict.update({'offset_'+str(i):errors.mean()})
             i+=1
         df = pd.DataFrame(error_dict)
+        #do not use last offset to determine lag
         lag = int(df.iloc[:,:-1].mean(axis = 1).idxmin().split('_')[-1])
+        return lag
+    
+    
+    def automatic(self, endogenous, exogenous=None, offset='Y', freqstr='H', h = 24, max_lags = 15, start_time = None, interpolate = True, limit = 5, brk_at_min=False):
+        """
+        gets the data and breaks it into the designated sasonality
+        goes through forward selection averages values
+        Get lowest value for forward selection go through backward selection
+        get prediction interval
+        fit model without last season
+        return prediction with intervals (this will be a new class eventually)
+        
+        """
+
+        fwd_lags = self.__rtrn_fwd_lags(endogenous=endogenous, exogenous=exogenous, offset=offset, freqstr=freqstr, h = h, max_lags = max_lags, interpolate = interpolate, limit = limit, brk_at_min=brk_at_min)
+        back_lag = self.__rtrn_bck_lag(endogenous=endogenous, fwd_lags=fwd_lags, exogenous=exogenous, offset=offset, freqstr=freqstr, h = h,  interpolate = interpolate, limit = limit, brk_at_min=brk_at_min)
+        
+
+        end_grpd = endogenous.groupby(pd.Grouper(freq = offset))
         last_offset = [v for g,v in end_grpd][-1].dropna()
         x_train = endogenous.drop(index = last_offset.index)
         y_train =  get_data_df(x_train.copy(), h, forward = True)
         if isinstance(exogenous, pd.DataFrame) or isinstance(exogenous, pd.Series):
             x_train = pd.concat([x_train, exogenous.loc[x_train.index]], axis = 1).dropna()
-        x_train = get_data_df(x_train, lags, forward = False).iloc[:,lag-1:]
+        x_train = get_data_df(x_train, fwd_lags, forward = False).iloc[:,back_lag-1:]
         x_train, y_train = return_alike_axis(x_train,y_train)
-        model.fit(x_train, y_train, lags = False)
+        self.fit(x_train, y_train, lags = False)
         
-        x_test = get_data_df(last_offset, lags, forward = False).iloc[:,lag-1:]
-        x_predict = pd.DataFrame(data =x_test.iloc[-1,:].values.reshape(1,10), columns = x_test.columns)
+        x_test = get_data_df(last_offset, fwd_lags, forward = False).iloc[:,back_lag-1:]
+        final_x = x_test.iloc[-1,:].values.reshape(1,len(x_test.columns))
+        x_predict = pd.DataFrame(data=final_x, columns = x_test.columns, index = [x_test.iloc[-1,:].name])
         y_test = get_data_df(last_offset.copy(), h, forward = True)
         x_test, y_test = return_alike_axis(x_test,y_test)
-        y_hat = model.static(x_test, test = False, reshape = False)            
+        y_hat = self.static(x_test, test = False, reshape = False)            
         rmse = np.sqrt((np.subtract(y_test,y_hat)**2).mean())
-        
-        y_hat_final = model.static(x_predict, test = False, reshape = False)   
-        return error_dict
+        y_hat_final = self.static(x_predict, test = False, reshape = False)   
+        return y_hat_final,rmse
       
 
-#    
-#
-#    def forward_backward_selection(self, endogenous, freqstr, steps_ahead = 24, 
-#                                   exogenous = None, max_steps = 5, 
-#                                   interpolate = True, limit = 5, 
-#                                   brk_at_min=False, intervals = True, p = .95):
-#        y,error_df = self.forward_selection(endogenous=endogenous, 
-#                                             freqstr=freqstr, 
-#                                             steps_ahead = steps_ahead, 
-#                                             exogenous = exogenous, 
-#                                             max_steps = max_steps, 
-#                                             interpolate = interpolate, 
-#                                             limit = limit, 
-#                                             brk_at_min=brk_at_min)
-#        
-#        steps = int(error_df.mean().idxmin().split('_')[-1])
-#        
-#        error_df, cols = self.backward_selection(endogenous=endogenous, 
-#                                                  freqstr=freqstr, 
-#                                                  steps_ahead = steps_ahead, 
-#                                                  exogenous = exogenous, 
-#                                                  steps = steps, 
-#                                                  interpolate = interpolate, 
-#                                                  limit = limit, 
-#                                                  brk_at_min=brk_at_min)
-#        
-#        y,_,endog=get_y(endogenous=endogenous, freqstr=freqstr, 
-#                        steps_ahead = steps_ahead, limit = limit)
-#                        
-#        if isinstance(exogenous, pd.DataFrame) or isinstance(exogenous, pd.Series):
-#            exog = pd.DataFrame(exogenous.asfreq(freq = freqstr).interpolate(limit = limit).dropna())
-#            x = get_data_df(exog, steps)
-#        else:
-#            exog = None
-#            x = get_data(endog, steps)
-#        x = x[cols].dropna()
-#        y=y.dropna()
-#        idx = [dx for dx in y.index if dx in x.index]
-#        y = y.loc[idx]
-#        x = x.loc[idx]
-#        
-#        if intervals:
-#            grouped = x.groupby(pd.Grouper(freq = 'Y'))
-#            error_list = []
-#            grps = len(grouped.groups)
-#            boots = int(1000/grps)
-#            for g,v in grouped:
-#                year = g.year
-#                x_test = v.dropna()
-#                y_test = y.loc[x_test.index]
-#                x_train = x[(x.index> str(year+1)) | (x.index<str(year))].dropna()
-#                y_train = y.loc[x_train.index]
-#                for i in range(boots):
-#                    x_sample_train = x_train.sample(frac = 1, replace = True)
-#                    y_sample_train = y_train.loc[x_sample_train.index]
-#                    model = KnnEnsemble()
-#                    model.fit(x_sample_train, y_sample_train)
-#                    preds = model.static(x_test)
-#                    e = y_test - preds
-#                    error_list.append(e)
-#            low = (1-p)/2
-#            high = 1-low        
-#            error = pd.concat(error_list, ignore_index = True)
-#            self.high = error.quantile(high).values
-#            self.low = error.quantile(low).values
-#        
-#        self.fit(x,y)
-#        
-#        return(error_df, x,y)
-#        
-#        
    

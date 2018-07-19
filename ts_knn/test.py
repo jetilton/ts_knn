@@ -24,7 +24,7 @@ y_test = pd.read_csv('y_test.csv', index_col = 0)[:6]
 
 class TestMethods(unittest.TestCase):
     start_date = (2007, 3, 1)
-    end_date =  (2017, 4,27)
+    end_date =  (2012, 4,27)
     end_date_exog =  (2011, 4,27)
     endogenous = get_cwms('TDA.%-Saturation-TDG.Inst.1Hour.0.GOES-COMPUTED-REV', start_date = start_date, end_date = end_date, public = True, fill = True)
     exogenous =  get_cwms('JHAW.%-Saturation-TDG.Inst.1Hour.0.GOES-COMPUTED-REV', start_date = start_date, end_date = end_date_exog, public = True, fill = True)
@@ -133,12 +133,20 @@ class TestMethods(unittest.TestCase):
         backward_errors=model.forward_backward_selection(x_train,y_train, x_test,y_test,'H', 24, max_lags=max_lags, limit = 5, brk_at_min = True)
         min_lag = int(backward_errors.mean().idxmin().split('_')[-1])
         self.assertEqual(model.X.shape[1] == lags-min_lag+1, True)
-        
-    def test_automatic(self):
-        max_lags = 15
+    
+    def test_rtrn_fwd_lags_bck_lag(self):
         model = KnnEnsemble()
-        x_test = model.automatic(endogenous=self.endogenous,exogenous=self.exogenous,offset='Y',freqstr='H', h=24, max_lags=max_lags, limit = 5, brk_at_min = True)
-        #self.assertEqual(x_test.shape[1], 2)
+        fwd_lags = model._KnnEnsemble__rtrn_fwd_lags(self.endogenous, exogenous=None, offset='Y', freqstr='H', h = 24, max_lags = 15, interpolate = True, limit = 5, brk_at_min=False)
+        self.assertEqual(isinstance(lags, int), True)
+        lag = model._KnnEnsemble__rtrn_bck_lag(self.endogenous, fwd_lags=fwd_lags,exogenous=None, offset='Y', freqstr='H', h = 24, max_lags = 15, interpolate = True, limit = 5, brk_at_min=False)
+        self.assertEqual(isinstance(lag, int), True)
+        
+#    def test_automatic(self):
+#        max_lags = 15
+#        model = KnnEnsemble()
+#        x_test = model.automatic(endogenous=self.endogenous,exogenous=self.exogenous,offset='Y',freqstr='H', h=24, max_lags=max_lags, limit = 5, brk_at_min = True)
+#        #self.assertEqual(x_test.shape[1], 2)
+#        
         
 if __name__ == '__main__':
     unittest.main()
