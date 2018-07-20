@@ -104,7 +104,19 @@ class TestMethods(unittest.TestCase):
         errors.mean()
         min_test = errors.mean()[-1]>errors.mean()[-2] and errors.mean()[-3]>errors.mean()[-2]
         self.assertEqual(min_test, True)
-        
+    
+    def test_forward_selection_start_time(self):
+        x = self.endogenous
+        x = x.iloc[:,0] 
+        index = x.index[int(len(x)*.85)]
+        x_train = x[:index]
+        y_train = x_train.copy()
+        x_test = x[index:]
+        y_test = x_test.copy()
+        lags = 60
+        model = KnnEnsemble()
+        errors = model.forward_selection(x_train,y_train, x_test,y_test,'H', 24, start_time = '08:00', max_lags=lags, limit = 5, brk_at_min = False)
+        self.assertEqual(errors.mean().min(), 1.5084587278235737)
 
     def test_backward_selection(self):
         x = self.endogenous
@@ -137,8 +149,8 @@ class TestMethods(unittest.TestCase):
     def test_rtrn_fwd_lags_bck_lag(self):
         model = KnnEnsemble()
         fwd_lags = model._KnnEnsemble__rtrn_fwd_lags(self.endogenous, exogenous=None, offset='Y', freqstr='H', h = 24, max_lags = 15, interpolate = True, limit = 5, brk_at_min=False)
-        self.assertEqual(isinstance(lags, int), True)
-        lag = model._KnnEnsemble__rtrn_bck_lag(self.endogenous, fwd_lags=fwd_lags,exogenous=None, offset='Y', freqstr='H', h = 24, max_lags = 15, interpolate = True, limit = 5, brk_at_min=False)
+        self.assertEqual(isinstance(fwd_lags, int), True)
+        lag = model._KnnEnsemble__rtrn_bck_lag(self.endogenous, fwd_lags=fwd_lags,exogenous=None, offset='Y', freqstr='H', h = 24, interpolate = True, limit = 5, brk_at_min=False)
         self.assertEqual(isinstance(lag, int), True)
         
 #    def test_automatic(self):

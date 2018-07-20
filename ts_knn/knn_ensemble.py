@@ -119,27 +119,19 @@ class KnnEnsemble:
         return preds
     
     def predict(self, X, freqstr = 'H', h = 24):
-        
-        preds =  self.static(X, reshape = False)
-        df_list = []
+        try:
+            preds =  self.static(X, reshape = False)
+        except:
+            preds =  self.static(X, reshape = True)
+        s_list = []
         idx = X.index
-        date = ''
         for index,pred in enumerate(preds):
-            if freqstr:
-                ts = idx[index] 
-                date= pd.date_range(ts, periods=len(pred), freq=freqstr) + 1
-            df = pd.DataFrame(data = pred, columns = ['y_hat'])
-            if isinstance(date, pd.core.indexes.datetimes.DatetimeIndex):
-                df['date'] = date
-                df = df.set_index('date', drop = True)
-            try:
-                df['high']  = df['y_hat'] + self.high
-                df['low']  = df['y_hat'] + self.low
-            except:
-                pass
-            df_list.append(df)
-        return df_list
-    
+            ts = idx[index] 
+            date= pd.date_range(ts, periods=len(pred), freq=freqstr) + 1
+            s = pd.Series(data = pred, index = date)
+            s_list.append(s)
+        return s_list
+
     
     def error(self, X_test, y_test, dynamic = False):
         y_test = pd.DataFrame(y_test).asfreq(freq = self.freqstr).interpolate(limit = self.limit).dropna()
@@ -153,20 +145,62 @@ class KnnEnsemble:
         #aic = (np.log(rmse/self.n) + 2 * (self.params +1)).mean()
         return rmse
     
-    def forward_selection(self, x_train, y_train, x_test, y_test, freqstr='H', h = 24, max_lags = 15, interpolate = True, limit = 5, brk_at_min=False):
-        X_test = pd.DataFrame(x_test).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
-        Y_test = pd.DataFrame(y_test).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+#    def forward_selection(self, x_train, y_train, x_test, y_test, freqstr='H', h = 24, max_lags = 15, interpolate = True, limit = 5, brk_at_min=False):
+#        if interpolate:
+#            X_test = pd.DataFrame(x_test).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+#            Y_test = pd.DataFrame(y_test).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+#        else: 
+#            X_test = pd.DataFrame(x_test).asfreq(freq = freqstr).dropna()
+#            Y_test = pd.DataFrame(y_test).asfreq(freq = freqstr).dropna()
+#        Y_test = get_data_df(Y_test, h, forward = True).dropna()
+#        X_test,Y_test = return_alike_axis(X_test,Y_test)
+#        
+#        errors = {}
+#        min_rmse = float('inf')
+#        for lag in range(1,max_lags+1):
+#            self.fit(x_train, y_train, freqstr=freqstr, h=h, lags=lag, limit=limit, new_fit = True)
+#            x_test = get_data_df(X_test, lag, forward = False)
+#            x_test, y_test = return_alike_axis(x_test,Y_test)
+#            y_hat = self.static(x_test, test = False, reshape = False)
+#            rmse = np.sqrt((np.subtract(Y_test[lag:],y_hat)**2).mean())
+#            errors.update({'lag_'+str(lag):rmse})
+#            if brk_at_min:
+#                if rmse.mean()<min_rmse:
+#                    min_rmse = rmse.mean()
+#                else:
+#                    break
+#        return pd.DataFrame(data = errors)
+    
+    def forward_selection(self, x_train, y_train, x_test, y_test, freqstr='H', h = 24, max_lags = 15, start_time = None, interpolate = True, limit = 5, brk_at_min=False):
+        if interpolate:
+            X_test = pd.DataFrame(x_test).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+            Y_test = pd.DataFrame(y_test).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+            X_train = pd.DataFrame(x_train).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+            Y_train = pd.DataFrame(y_train).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+        else: 
+            X_test = pd.DataFrame(x_test).asfreq(freq = freqstr).dropna()
+            Y_test = pd.DataFrame(y_test).asfreq(freq = freqstr).dropna()
+            X_train = pd.DataFrame(x_train).asfreq(freq = freqstr).dropna()
+            Y_train = pd.DataFrame(y_train).asfreq(freq = freqstr).dropna()
+        Y_train = get_data_df(Y_train, h, forward = True).dropna()
+        X_train = get_data_df(X_train, max_lags, forward = False).dropna()
+        X_train,Y_train = return_alike_axis(X_train,Y_train)
         Y_test = get_data_df(Y_test, h, forward = True).dropna()
+        X_test = get_data_df(X_test, max_lags, forward = False).dropna()
         X_test,Y_test = return_alike_axis(X_test,Y_test)
-        
+        if start_time:
+            Y_train = Y_train.between_time(start_time,start_time)
+            X_train = X_train.between_time(start_time,start_time)
+            Y_test = Y_test.between_time(start_time,start_time)
+            X_test = X_test.between_time(start_time,start_time)
         errors = {}
         min_rmse = float('inf')
         for lag in range(1,max_lags+1):
-            self.fit(x_train, y_train, freqstr=freqstr, h=h, lags=lag, limit=limit, new_fit = True)
-            x_test = get_data_df(X_test, lag, forward = False)
-            x_test, y_test = return_alike_axis(x_test,Y_test)
+            x_train = X_train.iloc[:,0:lag]
+            x_test = X_test.iloc[:,0:lag]
+            self.fit(x_train, Y_train, lags=False)
             y_hat = self.static(x_test, test = False, reshape = False)
-            rmse = np.sqrt((np.subtract(Y_test[lag:],y_hat)**2).mean())
+            rmse = np.sqrt((np.subtract(Y_test,y_hat)**2).mean())
             errors.update({'lag_'+str(lag):rmse})
             if brk_at_min:
                 if rmse.mean()<min_rmse:
@@ -174,6 +208,7 @@ class KnnEnsemble:
                 else:
                     break
         return pd.DataFrame(data = errors)
+            
     
     def backward_selection(self, x_train, y_train, x_test, y_test, freqstr='H', h = 24, lags = 15, interpolate = True, limit = 5, brk_at_min=False):
         """
