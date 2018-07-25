@@ -210,7 +210,7 @@ class KnnEnsemble:
         return pd.DataFrame(data = errors)
             
     
-    def backward_selection(self, x_train, y_train, x_test, y_test, freqstr='H', h = 24, lags = 15, interpolate = True, limit = 5, brk_at_min=False):
+    def backward_selection(self, x_train, y_train, x_test, y_test, freqstr='H', h = 24, lags = 15, start_time = None, interpolate = True, limit = 5, brk_at_min=False):
         """
         Given an x_train, y_train and x_test, y_test the backward selection removes the beginning lags and records the error
         returns the error dataframe
@@ -220,26 +220,29 @@ class KnnEnsemble:
             Y_test = pd.DataFrame(y_test).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
             X_train = pd.DataFrame(x_train).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
             Y_train = pd.DataFrame(y_train).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
-        else:
+        else: 
             X_test = pd.DataFrame(x_test).asfreq(freq = freqstr).dropna()
             Y_test = pd.DataFrame(y_test).asfreq(freq = freqstr).dropna()
             X_train = pd.DataFrame(x_train).asfreq(freq = freqstr).dropna()
             Y_train = pd.DataFrame(y_train).asfreq(freq = freqstr).dropna()
-            
-        x_test = get_data_df(X_test, lags, forward = False)
-        y_test = get_data_df(Y_test, h, forward = True)
-        x_test,y_test = return_alike_axis(x_test,y_test)
-        
-        x_train = get_data_df(X_train, lags, forward = False)
-        y_train = get_data_df(Y_train, h, forward = True)
-        x_train,y_train = return_alike_axis(x_train,y_train)
+        Y_train = get_data_df(Y_train, h, forward = True).dropna()
+        X_train = get_data_df(X_train, lags, forward = False).dropna()
+        X_train,Y_train = return_alike_axis(X_train,Y_train)
+        Y_test = get_data_df(Y_test, h, forward = True).dropna()
+        X_test = get_data_df(X_test, lags, forward = False).dropna()
+        X_test,Y_test = return_alike_axis(X_test,Y_test)
+        if start_time:
+            Y_train = Y_train.between_time(start_time,start_time)
+            X_train = X_train.between_time(start_time,start_time)
+            Y_test = Y_test.between_time(start_time,start_time)
+            X_test = X_test.between_time(start_time,start_time)
     
         errors = {}
         
         for lag in range(0,lags):
-            self.fit(x_train.iloc[:,lag:],y_train, lags = False)
-            y_hat = self.static(x_test.iloc[:,lag:], test = False, reshape = False)            
-            rmse = np.sqrt((np.subtract(y_test,y_hat)**2).mean())
+            self.fit(X_train.iloc[:,lag:],Y_train, lags = False)
+            y_hat = self.static(X_test.iloc[:,lag:], test = False, reshape = False)            
+            rmse = np.sqrt((np.subtract(Y_test,y_hat)**2).mean())
             errors.update({'lag_'+str(lag+1):rmse})
         errors_df = pd.DataFrame(errors)
         return errors_df
