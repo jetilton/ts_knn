@@ -215,21 +215,32 @@ class KnnEnsemble:
         Given an x_train, y_train and x_test, y_test the backward selection removes the beginning lags and records the error
         returns the error dataframe
         """
-        X_test = pd.DataFrame(x_test).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
-        Y_test = pd.DataFrame(y_test).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+        if interpolate:
+            X_test = pd.DataFrame(x_test).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+            Y_test = pd.DataFrame(y_test).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+            X_train = pd.DataFrame(x_train).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+            Y_train = pd.DataFrame(y_train).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
+        else:
+            X_test = pd.DataFrame(x_test).asfreq(freq = freqstr).dropna()
+            Y_test = pd.DataFrame(y_test).asfreq(freq = freqstr).dropna()
+            X_train = pd.DataFrame(x_train).asfreq(freq = freqstr).dropna()
+            Y_train = pd.DataFrame(y_train).asfreq(freq = freqstr).dropna()
+            
         x_test = get_data_df(X_test, lags, forward = False)
         y_test = get_data_df(Y_test, h, forward = True)
         x_test,y_test = return_alike_axis(x_test,y_test)
-        self.fit(x_train, y_train, freqstr=freqstr, h=h, lags=lags, limit=limit, new_fit = True)
-        columns = self.X.columns
+        
+        x_train = get_data_df(X_train, lags, forward = False)
+        y_train = get_data_df(Y_train, h, forward = True)
+        x_train,y_train = return_alike_axis(x_train,y_train)
+    
         errors = {}
         
-        for lag in range(1,lags+1):
-            cols = [x for x in columns if int(x.split('_')[-1]) >= lag]
-            self.fit(self.X[cols],self.y, lags = False)
-            y_hat = self.static(x_test[cols], test = False, reshape = False)            
+        for lag in range(0,lags):
+            self.fit(x_train.iloc[:,lag:],y_train, lags = False)
+            y_hat = self.static(x_test.iloc[:,lag:], test = False, reshape = False)            
             rmse = np.sqrt((np.subtract(y_test,y_hat)**2).mean())
-            errors.update({'lag_'+str(lag):rmse})
+            errors.update({'lag_'+str(lag+1):rmse})
         errors_df = pd.DataFrame(errors)
         return errors_df
     
