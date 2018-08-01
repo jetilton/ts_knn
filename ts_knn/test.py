@@ -8,27 +8,14 @@ from sklearn.neighbors import KNeighborsRegressor
 from cwms_read.cwms_read import get_cwms
 from datetime import timedelta
 
-x_train = pd.read_csv('x_train.csv', index_col = 0)[:21]
-y_train = pd.read_csv('y_train.csv', index_col = 0)[:21]
-x_test = pd.read_csv('x_test.csv', index_col = 0)[:6]
-y_test = pd.read_csv('y_test.csv', index_col = 0)[:6]
-
-#x_train = pd.DataFrame(data = [x[0] for x in np.linspace(0,100,11).reshape(11,1)])
-#y_train = x_train * 5
-#x_test = pd.DataFrame(data = [x[0] for x in np.array([1,5]).reshape(2,1)])
-#y_test = x_test*5
-#
-
-
-
-
 class TestMethods(unittest.TestCase):
-    start_date = (2007, 3, 1)
-    end_date =  (2012, 4,27)
-    end_date_exog =  (2011, 4,27)
-    endogenous = get_cwms('TDA.%-Saturation-TDG.Inst.1Hour.0.GOES-COMPUTED-REV', start_date = start_date, end_date = end_date, public = True, fill = True)
-    exogenous =  get_cwms('JHAW.%-Saturation-TDG.Inst.1Hour.0.GOES-COMPUTED-REV', start_date = start_date, end_date = end_date_exog, public = True, fill = True)
 
+    endogenous = pd.read_csv('endogenous.csv')
+    endogenous['date'] = pd.to_datetime(endogenous['date'])
+    endogenous.set_index('date', drop = True, inplace = True)
+    exogenous = pd.read_csv('exogenous.csv')
+    exogenous['date'] = pd.to_datetime(exogenous['date'])
+    exogenous.set_index('date', drop = True, inplace = True)
 
     def test_get_data_x(self):
         x = self.endogenous
@@ -162,6 +149,22 @@ class TestMethods(unittest.TestCase):
         backward_errors=model.forward_backward_selection(x_train,y_train, x_test,y_test,'H', 24, max_lags=max_lags, limit = 5, brk_at_min = True)
         min_lag = int(backward_errors.mean().idxmin().split('_')[-1])
         self.assertEqual(model.X.shape[1] == lags-min_lag+1, True)
+        
+    def test_forward_backward_selection_start_time(self):
+        x = self.endogenous
+        x = x.iloc[:,0] 
+        index = x.index[int(len(x)*.85)]
+        x_train = x[:index]
+        y_train = x_train
+        x_test = x[index:]
+        y_test = x_test
+        max_lags = 15
+        model = KnnEnsemble()
+        forward_errors = model.forward_selection(x_train,y_train, x_test,y_test,'H', 24, max_lags=max_lags,start_time='08:00', limit = 5, brk_at_min = True)
+        lags = int(forward_errors.mean().idxmin().split('_')[-1]) 
+        backward_errors=model.forward_backward_selection(x_train,y_train, x_test,y_test,'H', 24, max_lags=max_lags,start_time='08:00',limit = 5, brk_at_min = True)
+        min_lag = int(backward_errors.mean().idxmin().split('_')[-1])
+        self.assertEqual(model.X.shape[1] == lags-min_lag+1, True)
     
     def test_rtrn_fwd_lags_bck_lag(self):
         model = KnnEnsemble()
@@ -170,13 +173,13 @@ class TestMethods(unittest.TestCase):
         lag = model._KnnEnsemble__rtrn_bck_lag(self.endogenous, fwd_lags=fwd_lags,exogenous=None, offset='Y', freqstr='H', h = 24, interpolate = True, limit = 5, brk_at_min=False)
         self.assertEqual(isinstance(lag, int), True)
         
-#    def test_automatic(self):
-#        max_lags = 15
-#        model = KnnEnsemble()
-#        x_test = model.automatic(endogenous=self.endogenous,exogenous=self.exogenous,offset='Y',freqstr='H', h=24, max_lags=max_lags, limit = 5, brk_at_min = True)
-#        #self.assertEqual(x_test.shape[1], 2)
-#        
+    def test_automatic_intervals(self):
         
+        model = KnnEnsemble()
+        #x_test = model.automatic(endogenous=self.endogenous,exogenous=self.exogenous,offset='Y',freqstr='H', h=24, max_lags=max_lags, limit = 5, brk_at_min = True)
+        #self.assertEqual(x_test.shape[1], 2)
+        f,b=model.automatic(self.endogenous, exogenous=None, offset='Y', freqstr='H', h = 24, max_lags = 15, start_time = None, interpolate = True, limit = 5, brk_at_min=False, p = .95)
+        print(f,b)
 if __name__ == '__main__':
     unittest.main()
     
