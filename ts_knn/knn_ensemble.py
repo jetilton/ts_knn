@@ -145,32 +145,6 @@ class KnnEnsemble:
         #aic = (np.log(rmse/self.n) + 2 * (self.params +1)).mean()
         return rmse
     
-#    def forward_selection(self, x_train, y_train, x_test, y_test, freqstr='H', h = 24, max_lags = 15, interpolate = True, limit = 5, brk_at_min=False):
-#        if interpolate:
-#            X_test = pd.DataFrame(x_test).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
-#            Y_test = pd.DataFrame(y_test).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
-#        else: 
-#            X_test = pd.DataFrame(x_test).asfreq(freq = freqstr).dropna()
-#            Y_test = pd.DataFrame(y_test).asfreq(freq = freqstr).dropna()
-#        Y_test = get_data_df(Y_test, h, forward = True).dropna()
-#        X_test,Y_test = return_alike_axis(X_test,Y_test)
-#        
-#        errors = {}
-#        min_rmse = float('inf')
-#        for lag in range(1,max_lags+1):
-#            self.fit(x_train, y_train, freqstr=freqstr, h=h, lags=lag, limit=limit, new_fit = True)
-#            x_test = get_data_df(X_test, lag, forward = False)
-#            x_test, y_test = return_alike_axis(x_test,Y_test)
-#            y_hat = self.static(x_test, test = False, reshape = False)
-#            rmse = np.sqrt((np.subtract(Y_test[lag:],y_hat)**2).mean())
-#            errors.update({'lag_'+str(lag):rmse})
-#            if brk_at_min:
-#                if rmse.mean()<min_rmse:
-#                    min_rmse = rmse.mean()
-#                else:
-#                    break
-#        return pd.DataFrame(data = errors)
-    
     def forward_selection(self, x_train, y_train, x_test, y_test, freqstr='H', h = 24, max_lags = 15, start_time = None, interpolate = True, limit = 5, brk_at_min=False):
         if interpolate:
             X_test = pd.DataFrame(x_test).asfreq(freq = freqstr).interpolate(limit = limit).dropna()
@@ -248,11 +222,12 @@ class KnnEnsemble:
         return errors_df
     
     
-    def forward_backward_selection(self, x_train, y_train, x_test, y_test, freqstr='H', h = 24, max_lags = 15, interpolate = True, limit = 5, brk_at_min=True):
+    def forward_backward_selection(self, x_train, y_train, x_test, y_test, freqstr='H', h = 24, max_lags = 15, start_time = None, interpolate = True, limit = 5, brk_at_min=True):
         
         forward_errors = self.forward_selection(x_train, y_train, x_test, 
                                                 y_test, freqstr=freqstr, h = h, 
-                                                max_lags = max_lags, 
+                                                max_lags = max_lags,
+                                                start_time=start_time,
                                                 interpolate = interpolate, 
                                                 limit = limit, 
                                                 brk_at_min=brk_at_min)
@@ -262,7 +237,8 @@ class KnnEnsemble:
         backward_errors = self.backward_selection(x_train, y_train, 
                                                   x_test, y_test, 
                                                   freqstr=freqstr, h = h, 
-                                                  lags = lags, 
+                                                  lags = lags,
+                                                  start_time=start_time,
                                                   interpolate = interpolate, 
                                                   limit = limit, 
                                                   brk_at_min=brk_at_min)
@@ -278,7 +254,7 @@ class KnnEnsemble:
         
         
         return backward_errors
-    def __rtrn_fwd_lags(self, endogenous, exogenous=None, offset='Y', freqstr='H', h = 24, max_lags = 15, interpolate = True, limit = 5, brk_at_min=False):
+    def __rtrn_fwd_lags(self, endogenous, exogenous=None, offset='Y', freqstr='H', h = 24, max_lags = 15, start_time=None, interpolate = True, limit = 5, brk_at_min=False):
         if isinstance(exogenous, pd.DataFrame) or isinstance(exogenous, pd.Series):
             endogenous,exogenous =  return_alike_axis(endogenous,exogenous)
             
@@ -298,7 +274,8 @@ class KnnEnsemble:
             x_test, y_test = return_alike_axis(x_test,y_test)
             errors = self.forward_selection(x_train, y_train, x_test, y_test, 
                                        freqstr=freqstr, h = h, 
-                                       max_lags = max_lags, 
+                                       max_lags = max_lags,
+                                       start_time=start_time,
                                        interpolate = interpolate, limit = limit, 
                                        brk_at_min=False)
             
@@ -306,10 +283,10 @@ class KnnEnsemble:
             i+=1
         df = pd.DataFrame(error_dict)
         # do not use last offset to determine lags
-        lags = int(df.iloc[:,:-1].mean(axis = 1).idxmin().split('_')[-1])
-        return lags
+        fwd_lags = int(df.iloc[:,:-1].mean(axis = 1).idxmin().split('_')[-1])
+        return fwd_lags
     
-    def __rtrn_bck_lag(self, endogenous, fwd_lags, exogenous=None, offset='Y', freqstr='H', h = 24, interpolate = True, limit = 5, brk_at_min=False):
+    def __rtrn_bck_lag(self, endogenous, fwd_lags, exogenous=None, offset='Y', freqstr='H', h = 24, start_time=None, interpolate = True, limit = 5, brk_at_min=False):
         #backward selection process
         end_grpd = endogenous.groupby(pd.Grouper(freq = offset))
         error_dict = {}
@@ -325,7 +302,8 @@ class KnnEnsemble:
             x_train, y_train = return_alike_axis(x_train,y_train)
             x_test, y_test = return_alike_axis(x_test,y_test)
             errors = self.backward_selection(x_train, y_train, x_test, y_test, 
-                                        freqstr=freqstr, h = h, lags = fwd_lags, 
+                                        freqstr=freqstr, h = h, lags = fwd_lags,
+                                        start_time=None,
                                         interpolate = interpolate, 
                                         limit = limit, brk_at_min=False)
             error_dict.update({'offset_'+str(i):errors.mean()})
@@ -336,7 +314,39 @@ class KnnEnsemble:
         return lag
     
     
-    def automatic(self, endogenous, exogenous=None, offset='Y', freqstr='H', h = 24, max_lags = 15, start_time = None, interpolate = True, limit = 5, brk_at_min=False):
+    def _get_pred_intervals(self, x_train, y_train, offset, p):
+        
+        grouped = x_train.groupby(pd.Grouper(freq = offset))
+        error_list = []
+        grps = len(grouped.groups)
+        boots = int(1000/grps)
+        for g,v in grouped:
+            
+            x_test = v.dropna()
+            y_test = y_train.loc[x_test.index]
+            X_train = x_train.drop(index = x_test.index)
+            Y_train = y_train.loc[X_train.index]
+            
+            for i in range(boots):
+                x_sample_train = X_train.sample(frac = 1, replace = True)
+                y_sample_train = Y_train.loc[x_sample_train.index]
+                
+                model = KnnEnsemble()
+                model.fit(x_sample_train, y_sample_train, lags = False)
+                preds = model.static(x_test, reshape = False)
+                e = y_test - preds
+                error_list.append(e)
+        low = (1-p)/2
+        high = 1-low        
+        error = pd.concat(error_list, ignore_index = True)
+        high = error.quantile(high).values
+        low = error.quantile(low).values
+        return high, low
+
+
+
+    
+    def automatic(self, endogenous, exogenous=None, offset='Y', freqstr='H', h = 24, max_lags = 15, start_time = None, interpolate = True, limit = 5, brk_at_min=False, p = .95):
         """
         gets the data and breaks it into the designated sasonality
         goes through forward selection averages values
@@ -347,8 +357,27 @@ class KnnEnsemble:
         
         """
 
-        fwd_lags = self.__rtrn_fwd_lags(endogenous=endogenous, exogenous=exogenous, offset=offset, freqstr=freqstr, h = h, max_lags = max_lags, interpolate = interpolate, limit = limit, brk_at_min=brk_at_min)
-        back_lag = self.__rtrn_bck_lag(endogenous=endogenous, fwd_lags=fwd_lags, exogenous=exogenous, offset=offset, freqstr=freqstr, h = h,  interpolate = interpolate, limit = limit, brk_at_min=brk_at_min)
+        fwd_lags = self.__rtrn_fwd_lags(endogenous=endogenous, 
+                                        exogenous=exogenous, 
+                                        offset=offset, 
+                                        freqstr=freqstr, 
+                                        h = h, 
+                                        max_lags = max_lags,
+                                        start_time = None, 
+                                        interpolate = interpolate, 
+                                        limit = limit, 
+                                        brk_at_min=brk_at_min)
+        
+        back_lag = self.__rtrn_bck_lag(endogenous=endogenous, 
+                                       fwd_lags=fwd_lags, 
+                                       exogenous=exogenous, 
+                                       offset=offset, 
+                                       freqstr=freqstr,
+                                       h = h, 
+                                       start_time = None, 
+                                       interpolate = interpolate, 
+                                       limit = limit,
+                                       brk_at_min=brk_at_min)
         
 
         end_grpd = endogenous.groupby(pd.Grouper(freq = offset))
@@ -357,9 +386,44 @@ class KnnEnsemble:
         y_train =  get_data_df(x_train.copy(), h, forward = True)
         if isinstance(exogenous, pd.DataFrame) or isinstance(exogenous, pd.Series):
             x_train = pd.concat([x_train, exogenous.loc[x_train.index]], axis = 1).dropna()
+        
+        
+        
+        
         x_train = get_data_df(x_train, fwd_lags, forward = False).iloc[:,back_lag-1:]
         x_train, y_train = return_alike_axis(x_train,y_train)
         self.fit(x_train, y_train, lags = False)
+        
+        
+        
+#        grouped = x_train.groupby(pd.Grouper(freq = offset))
+#        error_list = []
+#        grps = len(grouped.groups)
+#        boots = int(1000/grps)
+#        for g,v in grouped:
+#            
+#            x_test = v.dropna()
+#            y_test = y_train.loc[x_test.index]
+#            X_train = x_train.drop(index = x_test.index)
+#            Y_train = y_train.loc[X_train.index]
+#            
+#            for i in range(boots):
+#                x_sample_train = X_train.sample(frac = 1, replace = True)
+#                y_sample_train = Y_train.loc[x_sample_train.index]
+#                
+#                model = KnnEnsemble()
+#                model.fit(x_sample_train, y_sample_train, lags = False)
+#                preds = model.static(x_test, reshape = False)
+#                e = y_test - preds
+#                error_list.append(e)
+#        low = (1-p)/2
+#        high = 1-low        
+#        error = pd.concat(error_list, ignore_index = True)
+#        self.high = error.quantile(high).values
+#        self.low = error.quantile(low).values
+        high, low, = self._get_pred_intervals(x_train, y_train, offset, p)
+        self.hgih = high
+        self.low = low
         
         x_test = get_data_df(last_offset, fwd_lags, forward = False).iloc[:,back_lag-1:]
         final_x = x_test.iloc[-1,:].values.reshape(1,len(x_test.columns))
@@ -369,7 +433,7 @@ class KnnEnsemble:
         y_hat = self.static(x_test, test = False, reshape = False)            
         rmse = np.sqrt((np.subtract(y_test,y_hat)**2).mean())
         y_hat_final = self.static(x_predict, test = False, reshape = False)   
-        return y_hat_final,rmse
+        return fwd_lags,back_lag
       
 
    
